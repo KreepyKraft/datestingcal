@@ -5,10 +5,15 @@ const categories = [
 ];
 
 // UI thresholds: huge categories need more chars before opening suggestions
-const OPEN_THRESHOLD = {
-  default: 1,
-  Items: 2  // Items is huge → type 2 chars before opening list
-};
+-const OPEN_THRESHOLD = {
+-  default: 1,
+-  Items: 2  // Items is huge → type 2 chars before opening list
+-};
++const OPEN_THRESHOLD = {
++  default: 0,
++  Items: 0
++};
+
 
 // Cache (24h)
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -84,15 +89,33 @@ function getOpenThreshold() {
   return OPEN_THRESHOLD[currentCategoryName] ?? OPEN_THRESHOLD.default;
 }
 
-function getMatches(query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  return currentItems
-    .map(it => ({...it, _score: scoreMatch(q, it.title)}))
-    .filter(it => it._score < 9999)
-    .sort(itCmp)
-    .slice(0, 300); // show up to 300; scroll for more
-}
+-function getMatches(query) {
+-  const q = query.trim().toLowerCase();
+-  if (!q) return [];
+-  return currentItems
+-    .map(it => ({...it, _score: scoreMatch(q, it.title)}))
+-    .filter(it => it._score < 9999)
+-    .sort(itCmp)
+-    .slice(0, 300); // show up to 300 results; scroll for the rest
+-}
++function getMatches(query) {
++  const q = query.trim().toLowerCase();
++
++  // When nothing typed: show the whole list (alphabetical), capped to keep UI fast
++  if (!q) {
++    return [...currentItems]
++      .sort((a, b) => a.title.localeCompare(b.title))
++      .slice(0, 1000); // dropdown is scrollable; adjust if you want
++  }
++
++  // Typed query: score + filter + sort
++  return currentItems
++    .map(it => ({ ...it, _score: scoreMatch(q, it.title) }))
++    .filter(it => it._score < 9999)
++    .sort(itCmp)
++    .slice(0, 1000);
++}
+
 
 function renderSuggestions(items) {
   suggestionsBox.innerHTML = '';
@@ -287,19 +310,27 @@ categorySelect.addEventListener('change', () => {
   loadCategory(val);
 });
 
-itemSearch.addEventListener('input', () => {
-  if (itemSearch.value.trim().length < getOpenThreshold()) {
-    hideSuggestions();
-    return;
-  }
-  renderSuggestions(getMatches(itemSearch.value));
-});
+-itemSearch.addEventListener('input', () => {
+-  if (itemSearch.value.trim().length < getOpenThreshold()) {
+-    hideSuggestions();
+-    return;
+-  }
+-  renderSuggestions(getMatches(itemSearch.value));
+-});
+-
+-itemSearch.addEventListener('focus', () => {
+-  if (itemSearch.value.trim().length >= getOpenThreshold()) {
+-    renderSuggestions(getMatches(itemSearch.value));
+-  }
+-});
++itemSearch.addEventListener('input', () => {
++  renderSuggestions(getMatches(itemSearch.value));
++});
++
++itemSearch.addEventListener('focus', () => {
++  renderSuggestions(getMatches(itemSearch.value));
++});
 
-itemSearch.addEventListener('focus', () => {
-  if (itemSearch.value.trim().length >= getOpenThreshold()) {
-    renderSuggestions(getMatches(itemSearch.value));
-  }
-});
 
 itemSearch.addEventListener('blur', () => setTimeout(() => hideSuggestions(), 150));
 
