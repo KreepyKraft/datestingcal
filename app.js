@@ -3,68 +3,77 @@ const categories = [
   "Garments", "Resources", "Tools", "Vehicles", "Weapons"
 ];
 
-// Populate the categories dropdown
 const categorySelect = document.getElementById('category-select');
-categories.forEach(cat => {
-  const o = document.createElement('option');
-  o.value = cat.toLowerCase().replace(/\s+/g, '_');
-  o.textContent = cat;
-  categorySelect.appendChild(o);
-});
-
 const itemSelect = document.getElementById('item-select');
 const itemDetails = document.getElementById('item-details');
 
+// Populate category dropdown
+categories.forEach(cat => {
+  const option = document.createElement('option');
+  option.value = cat.replace(/\s+/g, '_'); // Use underscores
+  option.textContent = cat;
+  categorySelect.appendChild(option);
+});
+
 categorySelect.addEventListener('change', async () => {
-  const category = categorySelect.value;
+  const selectedCategory = categorySelect.value;
   itemSelect.innerHTML = '<option>Loading...</option>';
   itemSelect.disabled = true;
   itemDetails.innerHTML = '';
 
-  if (!category) {
+  if (!selectedCategory) {
     itemSelect.innerHTML = '<option>-- Select Item --</option>';
     return;
   }
 
   try {
-    // Fetch items by category (adjust endpoint as API supports)
-    const res = await fetch(`https://api.awakening.wiki/${category}`);
-    if (!res.ok) throw new Error(res.statusText);
-    const data = await res.json();
+    const apiUrl = `https://awakening.wiki/api.php?action=query&list=categorymembers&cmtitle=Category:${encodeURIComponent(selectedCategory)}&cmlimit=100&format=json&origin=*`;
+    const res = await fetch(apiUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+
+    const items = json.query?.categorymembers || [];
 
     itemSelect.innerHTML = '<option value="">-- Select Item --</option>';
-    data.forEach(item => {
+    items.forEach(item => {
       const opt = document.createElement('option');
-      opt.value = item.id;
-      opt.textContent = item.name;
+      opt.value = item.pageid;
+      opt.textContent = item.title;
       itemSelect.appendChild(opt);
     });
+
     itemSelect.disabled = false;
   } catch (err) {
+    console.error('Error loading items:', err);
     itemSelect.innerHTML = '<option>Error loading items</option>';
-    console.error(err);
   }
 });
 
 itemSelect.addEventListener('change', async () => {
-  const id = itemSelect.value;
+  const pageId = itemSelect.value;
   itemDetails.innerHTML = '';
 
-  if (!id) return;
+  if (!pageId) return;
 
   try {
-    const res = await fetch(`https://api.awakening.wiki/${categorySelect.value}/${id}`);
-    if (!res.ok) throw new Error(res.statusText);
-    const info = await res.json();
+    // Fetch item info and image thumbnail
+    const apiUrl = `https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=extracts|pageimages|info&inprop=url&exintro=1&format=json&origin=*`;
+    const res = await fetch(apiUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
 
-    // Display fields dynamically
-    Object.entries(info).forEach(([key, value]) => {
-      const p = document.createElement('p');
-      p.innerHTML = `<strong>${key}</strong>: ${JSON.stringify(value)}`;
-      itemDetails.appendChild(p);
-    });
+    const page = json.query.pages[pageId];
+
+    // Render item details
+    const html = `
+      <h2>${page.title}</h2>
+      ${page.thumbnail ? `<img src="${page.thumbnail.source}" alt="${page.title}" style="max-width:200px;">` : ''}
+      <p>${page.extract || 'No description available.'}</p>
+      <p><a href="${page.fullurl}" target="_blank">View on Wiki ↗</a></p>
+    `;
+    itemDetails.innerHTML = html;
   } catch (err) {
-    itemDetails.textContent = 'Error fetching item details.';
-    console.error(err);
+    console.error('Error loading item details:', err);
+    itemDetails.innerHTML = 'Failed to load item details.';
   }
 });
