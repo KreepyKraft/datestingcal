@@ -463,8 +463,23 @@ function makePanel(title, contentNode) {
   return wrap;
 }
 
+// --- NEW: make relative wiki links/images absolute so they work in our app
+function absolutizeUrls(root, base = 'https://awakening.wiki') {
+  const fix = (url) => {
+    if (!url) return url;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    if (url.startsWith('//')) return 'https:' + url;   // protocol-relative
+    if (url.startsWith('/'))  return base + url;       // site-absolute
+    return url;                                        // relative (rare in infobox)
+  };
+  root.querySelectorAll('img[src]').forEach(img => img.src = fix(img.getAttribute('src')));
+  root.querySelectorAll('a[href]').forEach(a => a.href = fix(a.getAttribute('href')));
+}
+
+// --- DROP-IN REPLACEMENT ---
 function extractInfobox(doc, pageTitle) {
-  const found = doc.querySelector('.infobox') || doc.querySelector('.portable-infobox');
+  // Try common infobox containers used by the site
+  const found = doc.querySelector('.infobox, .portable-infobox, .infobox-wrapper, aside.infobox');
   const box = document.createElement('aside');
   box.className = 'infobox';
 
@@ -473,16 +488,43 @@ function extractInfobox(doc, pageTitle) {
   title.textContent = pageTitle;
   box.appendChild(title);
 
-  let imgSrc = found?.querySelector('img')?.src
-            || doc.querySelector('#mw-content-text img')?.src
-            || null;
-  if (imgSrc) {
+  if (found) {
+    // Clone the ENTIRE infobox so we keep rich content (bars, nested tables, etc.)
+    const cloned = found.cloneNode(true);
+
+    // Remove edit chevrons/anchors if present
+    cloned.querySelectorAll('.mw-editsection, .mw-editsection-visualeditor').forEach(n => n.remove());
+
+    // Ensure images/links work outside the wiki
+    absolutizeUrls(cloned);
+
+    // Slim the outer wrapper a bit so it fits our sidebar
+    // (optional: you can also strip redundant titles inside the cloned node)
+    box.appendChild(cloned);
+    return box;
+  }
+
+  // Fallback: build a simple key/value table (older pages without a recognizable infobox)
+  const kvTable = doc.querySelector('#mw-content-text table');
+  if (kvTable) {
+    const simple = kvTable.cloneNode(true);
+    absolutizeUrls(simple);
+    box.appendChild(simple);
+    return box;
+  }
+
+  // Final fallback: image (if any)
+  const anyImg = doc.querySelector('#mw-content-text img');
+  if (anyImg) {
     const im = document.createElement('img');
     im.className = 'infobox-img';
-    im.src = imgSrc;
+    im.src = anyImg.src;
     im.alt = pageTitle;
     box.appendChild(im);
   }
+
+  return box;
+}
 
   if (found) {
     const rows = found.querySelectorAll('tr');
