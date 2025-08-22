@@ -1,23 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Dune Awakening Explorer</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <h1>Dune Awakening Explorer</h1>
 
   <div id="controls">
-    <select id="category-select">
+    <select id="category-select" aria-label="Select category">
       <option value="">-- Select Category --</option>
     </select>
 
-    <select id="item-select" disabled>
-      <option value="">-- Select Item --</option>
-    </select>
+    <input
+      id="item-search"
+      list="item-datalist"
+      placeholder="Search or pick an item…"
+      autocomplete="off"
+      disabled
+      aria-label="Search item"
+    />
+    <datalist id="item-datalist"></datalist>
+
+    <button id="load-item-btn" disabled>Load</button>
   </div>
 
+  <!-- Our structured result root -->
   <div id="item-details"></div>
 
   <script src="app.js"></script>
