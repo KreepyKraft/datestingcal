@@ -56,24 +56,34 @@ itemSelect.addEventListener('change', async () => {
   if (!pageId) return;
 
   try {
-    // Fetch item info and image thumbnail
-    const apiUrl = `https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=extracts|pageimages|info&inprop=url&exintro=1&format=json&origin=*`;
-    const res = await fetch(apiUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+    // Step 1: Get the page title using page ID
+    const metaRes = await fetch(`https://awakening.wiki/api.php?action=query&pageids=${pageId}&format=json&origin=*`);
+    const metaData = await metaRes.json();
+    const page = metaData.query.pages[pageId];
+    const pageTitle = page.title.replace(/ /g, '_');
 
-    const page = json.query.pages[pageId];
+    // Step 2: Fetch the full page HTML using a CORS proxy
+    const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/wiki/${pageTitle}`);
+    const htmlText = await htmlRes.text();
 
-    // Render item details
-    const html = `
-      <h2>${page.title}</h2>
-      ${page.thumbnail ? `<img src="${page.thumbnail.source}" alt="${page.title}" style="max-width:200px;">` : ''}
-      <p>${page.extract || 'No description available.'}</p>
-      <p><a href="${page.fullurl}" target="_blank">View on Wiki ↗</a></p>
-    `;
-    itemDetails.innerHTML = html;
+    // Step 3: Parse the HTML
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    const content = doc.querySelector('#mw-content-text');
+
+    // Clear and inject
+    itemDetails.innerHTML = '';
+    itemDetails.appendChild(content);
+
+    // Optional: Resize images
+    itemDetails.querySelectorAll('img').forEach(img => {
+      img.style.maxWidth = '250px';
+      img.style.height = 'auto';
+    });
+
   } catch (err) {
-    console.error('Error loading item details:', err);
-    itemDetails.innerHTML = 'Failed to load item details.';
+    console.error('Error loading full wiki page:', err);
+    itemDetails.textContent = 'Failed to load full details.';
   }
 });
+
