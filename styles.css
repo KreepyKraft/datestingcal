@@ -1,47 +1,67 @@
 body {
   font-family: sans-serif;
   margin: 2rem;
+  background-color: #000; /* 🔧 Page background to black */
+  color: #e0e0e0;          /* 🔧 Base text color */
 }
+
+h1 {
+  color: #e0e0e0; /* 🔧 Match title text color to rest of the text */
+  margin-bottom: 1rem;
+}
+
 #controls select {
   margin-right: 1rem;
   padding: 0.5rem;
 }
+
+/* Unified, clean item details box */
 #item-details {
-  margin-top: 1.5rem;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  background: #f9f9f9;
-}
-#item-details p {
-  margin: 0.3rem 0;
-}
-#item-details {
-  font-family: sans-serif;
   background-color: #1a1a1a;
   color: #e0e0e0;
+  font-family: sans-serif;
   padding: 1rem;
   border-radius: 6px;
+  margin-top: 1.5rem;
+  border: 1px solid #333;
+  line-height: 1.4;
 }
 
+/* Paragraph spacing */
+#item-details p {
+  margin: 0.3em 0;
+}
+
+/* Table formatting */
 #item-details table {
   border-collapse: collapse;
   width: 100%;
-  margin-top: 1rem;
+  margin: 0.5rem 0;
+  font-size: 0.95em;
 }
 
 #item-details th,
 #item-details td {
   border: 1px solid #444;
   padding: 0.5rem;
+  text-align: left;
 }
 
+/* Lists inside tables */
+#item-details td ul,
+#item-details td li {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+/* Images */
 #item-details img {
-  margin: 1rem 0;
-  max-width: 250px;
+  margin: 0.5rem 0;
+  max-width: 180px;
   height: auto;
 }
 
+/* Links */
 #item-details a {
   color: #ffaa00;
 }
-
