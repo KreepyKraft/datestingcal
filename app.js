@@ -51,8 +51,8 @@ categorySelect.addEventListener('change', async () => {
     } while (cmcontinue);
 
     itemSelect.innerHTML = '<option value="">-- Select Item --</option>';
-    items
-  .filter(item => !item.title.startsWith('Category:')) // 🔥 filter out category links
+  items
+  .filter(item => item.title && !item.title.toLowerCase().startsWith('category:'))
   .forEach(item => {
     const opt = document.createElement('option');
     opt.value = item.pageid;
