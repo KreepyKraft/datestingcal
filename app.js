@@ -1,7 +1,8 @@
 /***********************
  * Dune Awakening Explorer
- * app.js (full replacement)
+ * app.js — FULL REPLACEMENT with debug logging
  ***********************/
+console.log('✅ app.js loaded');
 
 // ---------------- Config ----------------
 const CATEGORIES = [
@@ -9,7 +10,7 @@ const CATEGORIES = [
   "Garments", "Resources", "Tools", "Vehicles", "Weapons"
 ];
 
-// UI thresholds: open suggestions immediately (0 chars)
+// Open suggestions immediately on focus (0 chars)
 const OPEN_THRESHOLD = { default: 0, Items: 0 };
 
 // Cache (24h)
@@ -24,30 +25,42 @@ const itemDetails    = document.getElementById('item-details');
 const statusEl       = document.getElementById('status');
 
 // --------------- State ------------------
-let currentItems = [];       // [{ title, pageid }]
-let activeIndex = -1;        // keyboard highlight index
-let currentAbort = null;     // abort controller for in-flight category loads
+let currentItems = [];        // [{ title, pageid }]
+let activeIndex = -1;         // keyboard highlight index
+let currentAbort = null;      // abort controller for in-flight category loads
 let currentCategoryName = ''; // human label for threshold map
 
 // ---------- Init ----------
 (function init() {
-  // 1) Populate categories
-  if (!categorySelect) {
-    console.error('category-select element not found in DOM');
-    return;
-  }
-  // Keep the default "-- Select Category --" option already in HTML
-  CATEGORIES.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat.replace(/\s+/g, '_'); // API category name uses underscores
-    opt.textContent = cat;
-    categorySelect.appendChild(opt);
-  });
+  try {
+    console.log('✅ init running…');
 
-  // 2) If a category is preselected, enable search and load it
-  if (categorySelect.value) {
-    enableSearchFieldOnly();
-    loadCategory(categorySelect.value);
+    if (!categorySelect) {
+      console.error('❌ #category-select not found in DOM');
+      return;
+    }
+    if (!itemSearch || !suggestionsBox || !loadItemBtn || !itemDetails) {
+      console.error('❌ One or more required elements missing (search/suggestions/button/details)');
+      return;
+    }
+
+    // Keep the default "-- Select Category --" option already in HTML
+    CATEGORIES.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.replace(/\s+/g, '_'); // API style
+      opt.textContent = cat;
+      categorySelect.appendChild(opt);
+    });
+    console.log('✅ Categories appended:', CATEGORIES);
+
+    // If a category is already selected, enable search & load
+    if (categorySelect.value) {
+      console.log('ℹ️ Preselected category:', categorySelect.value);
+      enableSearchFieldOnly();
+      loadCategory(categorySelect.value);
+    }
+  } catch (e) {
+    console.error('❌ init failed:', e);
   }
 })();
 
@@ -120,6 +133,7 @@ function renderSuggestions(items) {
     div.id = `sg-${i}`;
     div.role = 'option';
     div.textContent = it.title;
+    // mousedown fires before blur → ensures click works
     div.addEventListener('mousedown', (e) => {
       e.preventDefault();
       chooseSuggestion(it);
@@ -162,8 +176,10 @@ function findExactByTitle(t) {
 // -------- localStorage cache helpers --------
 function cacheKeyFor(cat) { return `awakening-category:${cat}`; }
 function saveCache(cat, items) {
-  try { localStorage.setItem(cacheKeyFor(cat), JSON.stringify({ ts: Date.now(), items })); }
-  catch {}
+  try {
+    localStorage.setItem(cacheKeyFor(cat), JSON.stringify({ ts: Date.now(), items }));
+    console.log(`💾 cached ${items.length} for ${cat}`);
+  } catch {}
 }
 function loadCache(cat) {
   try {
@@ -172,35 +188,38 @@ function loadCache(cat) {
     const blob = JSON.parse(raw);
     if (!blob || !Array.isArray(blob.items) || typeof blob.ts !== 'number') return null;
     if (Date.now() - blob.ts > CACHE_TTL_MS) return null;
+    console.log(`⚡ using cache for ${cat} (${blob.items.length} items)`);
     return blob.items;
   } catch { return null; }
 }
 
 // ------------- Category fetch (incremental + cached) -------------
 async function loadCategory(categoryValue) {
+  console.log('➡️ loadCategory()', categoryValue);
   resetSearchUI();
   itemDetails.innerHTML = '';
   currentCategoryName = categoryValue.replace(/_/g, ' ');
 
-  // Abort any in-flight previous load
+  // Abort previous
   if (currentAbort) currentAbort.abort();
   currentAbort = new AbortController();
 
-  // 1) Try cache for instant UX
+  // Try cache first
   const cached = loadCache(categoryValue);
   if (cached) {
     currentItems = cached;
     enableSearchAndLoad();
     setStatus(`Loaded ${cached.length} items (cached)`);
-    // Warm cache in background
+    // Refresh silently
     refreshCategoryInBackground(categoryValue, currentAbort.signal).catch(() => {});
     return;
   }
 
-  // 2) Fresh incremental load
+  // Fresh incremental load
   enableSearchFieldOnly();
   currentItems = [];
   setStatus('Loading…');
+  console.log('🛰️ fetching category from API');
 
   try {
     let cmcontinue = null;
@@ -215,7 +234,7 @@ async function loadCategory(categoryValue) {
       url.searchParams.set('cmlimit', '100');
       url.searchParams.set('format', 'json');
       url.searchParams.set('origin', '*');
-      url.searchParams.set('cmtype', 'page');
+      url.searchParams.set('cmtype', 'page'); // only pages
       if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
 
       const res = await fetch(url, { signal: currentAbort.signal });
@@ -226,6 +245,7 @@ async function loadCategory(categoryValue) {
       currentItems = currentItems.concat(batch);
       loadedCount += batch.length;
       setStatus(`Loading… ${loadedCount} items`);
+      console.log('📦 batch', batch.length, 'total', loadedCount);
 
       if (!firstBatchShown && currentItems.length >= 100) {
         enableSearchAndLoad();
@@ -238,9 +258,13 @@ async function loadCategory(categoryValue) {
     if (!firstBatchShown) enableSearchAndLoad();
     saveCache(categoryValue, currentItems);
     setStatus(`Loaded ${currentItems.length} items`);
+    console.log('✅ category load complete:', currentItems.length);
   } catch (e) {
-    if (e.name === 'AbortError') return;
-    console.error('Error loading items:', e);
+    if (e.name === 'AbortError') {
+      console.log('🛑 category load aborted (switched categories)');
+      return;
+    }
+    console.error('❌ Error loading items:', e);
     itemSearch.disabled = false;
     itemSearch.placeholder = 'Failed to load items';
     loadItemBtn.disabled = true;
@@ -248,40 +272,46 @@ async function loadCategory(categoryValue) {
   }
 }
 
-// Background refresh
+// Background refresh to warm cache without touching UI mid-typing
 async function refreshCategoryInBackground(categoryValue, signal) {
-  let items = [];
-  let cmcontinue = null;
-  do {
-    const url = new URL('https://awakening.wiki/api.php');
-    url.searchParams.set('action', 'query');
-    url.searchParams.set('list', 'categorymembers');
-    url.searchParams.set('cmtitle', `Category:${categoryValue}`);
-    url.searchParams.set('cmlimit', '100');
-    url.searchParams.set('format', 'json');
-    url.searchParams.set('origin', '*');
-    url.searchParams.set('cmtype', 'page');
-    if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
+  try {
+    let items = [];
+    let cmcontinue = null;
+    do {
+      const url = new URL('https://awakening.wiki/api.php');
+      url.searchParams.set('action', 'query');
+      url.searchParams.set('list', 'categorymembers');
+      url.searchParams.set('cmtitle', `Category:${categoryValue}`);
+      url.searchParams.set('cmlimit', '100');
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('origin', '*');
+      url.searchParams.set('cmtype', 'page');
+      if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
 
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-    items = items.concat(data.query.categorymembers.map(({ title, pageid }) => ({ title, pageid })));
-    cmcontinue = data.continue?.cmcontinue;
-  } while (cmcontinue);
+      items = items.concat(data.query.categorymembers.map(({ title, pageid }) => ({ title, pageid })));
+      cmcontinue = data.continue?.cmcontinue;
+    } while (cmcontinue);
 
-  saveCache(categoryValue, items);
-  if (categorySelect.value === categoryValue) {
-    currentItems = items;
-    setStatus(`Loaded ${currentItems.length} items (refreshed)`);
-    enableSearchAndLoad();
+    saveCache(categoryValue, items);
+    if (categorySelect.value === categoryValue) {
+      currentItems = items;
+      setStatus(`Loaded ${currentItems.length} items (refreshed)`);
+      enableSearchAndLoad();
+      console.log('♻️ refreshed cache & state for', categoryValue);
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('bg refresh failed:', e);
   }
 }
 
 // ------------- Events -------------
 categorySelect.addEventListener('change', () => {
   const val = categorySelect.value;
+  console.log('🔁 category changed →', val);
   if (!val) {
     resetSearchUI();
     itemSearch.disabled = true;
@@ -393,7 +423,7 @@ async function loadItemByPageId(pageId) {
     itemDetails.appendChild(layout);
 
   } catch (e) {
-    console.error('Error loading item:', e);
+    console.error('❌ Error loading item:', e);
     itemDetails.textContent = 'Failed to load full details.';
   }
 }
@@ -467,8 +497,6 @@ function extractInfobox(doc, pageTitle) {
         const td = document.createElement('td');
         th.innerHTML = cells[0].innerHTML;
         td.innerHTML = cells[1].innerHTML;
-        trNew.appendChild(th);
-        trNew.appendChild(td);
         tbody.appendChild(trNew);
       });
       if (tbody.childNodes.length) {
