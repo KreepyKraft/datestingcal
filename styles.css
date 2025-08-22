@@ -150,3 +150,44 @@ h1 {
 .panel th, .panel td { border: 1px solid #333; padding: .45rem .55rem; vertical-align: top; text-align: left; }
 .panel ul, .panel ol { margin: .35rem 0 .35rem 1.2rem; }
 .panel a { color: #ffaa00; }
+
+/* --- Optional: bump styles for cloned wiki infobox/tables --- */
+.infobox {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  color: #ddd;
+}
+
+.infobox table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 0.35rem 0;
+}
+
+.infobox th,
+.infobox td {
+  border: 1px solid #333;
+  padding: 0.45rem 0.55rem;
+  vertical-align: top;
+  text-align: left;
+}
+
+.infobox h3,
+.infobox .infobox-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #e4c86a;
+}
+.infobox img {
+  display: block;
+  margin: 0.5rem auto;
+  max-width: 90%;
+  height: auto;
+  border-radius: 4px;
+}
+
