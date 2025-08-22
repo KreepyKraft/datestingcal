@@ -12,12 +12,12 @@ const loadItemBtn    = document.getElementById('load-item-btn');
 const itemDetails    = document.getElementById('item-details');
 
 // --------------- State ------------------
-let currentItems = []; // [{ title, pageid }]
-let activeIndex = -1;  // keyboard highlight index
+let currentItems = [];       // [{ title, pageid }]
+let activeIndex = -1;        // keyboard highlight index
+const MIN_CHARS_TO_OPEN = 1; // don't open big list on focus; type at least 1 char
 
 // ---------- Populate categories ----------
 (function initCategories() {
-  // Ensure there is a blank default in HTML; add options after it
   categories.forEach(cat => {
     const o = document.createElement('option');
     o.value = cat.replace(/\s+/g, '_');
@@ -25,9 +25,9 @@ let activeIndex = -1;  // keyboard highlight index
     categorySelect.appendChild(o);
   });
 
-  // If a category is already selected on load, fetch it immediately
+  // If a category is preselected, enable search immediately and load
   if (categorySelect.value) {
-    enableSearchFieldOnly();          // allow typing right away
+    enableSearchFieldOnly();
     loadCategory(categorySelect.value);
   }
 })();
@@ -43,7 +43,6 @@ function resetSearchUI() {
 }
 
 function enableSearchFieldOnly() {
-  // Enable typing even while we fetch; keep Load disabled until data arrives
   itemSearch.disabled = false;
   loadItemBtn.disabled = true;
 }
@@ -67,25 +66,19 @@ function itCmp(a, b) {
 
 function getMatches(query) {
   const q = query.trim().toLowerCase();
-  if (!q) {
-    return [...currentItems].sort((a,b)=>a.title.localeCompare(b.title)).slice(0, 50);
-  }
+  if (!q) return [];
   return currentItems
     .map(it => ({...it, _score: scoreMatch(q, it.title)}))
     .filter(it => it._score < 9999)
     .sort(itCmp)
-    .slice(0, 50);
+    .slice(0, 300); // show up to 300 results; scroll for the rest
 }
 
 function renderSuggestions(items) {
   suggestionsBox.innerHTML = '';
   if (!items.length) {
-    const div = document.createElement('div');
-    div.className = 'suggestion';
-    div.textContent = 'No matches';
-    suggestionsBox.appendChild(div);
-    suggestionsBox.classList.remove('hidden');
-    itemSearch.setAttribute('aria-expanded', 'true');
+    suggestionsBox.classList.add('hidden');
+    itemSearch.setAttribute('aria-expanded', 'false');
     return;
   }
   items.forEach((it, i) => {
@@ -133,7 +126,7 @@ function findExactByTitle(t) {
   return currentItems.find(i => i.title.toLowerCase() === q) || null;
 }
 
-// ------------- Category fetch (refactored) -------------
+// ------------- Category fetch -------------
 async function loadCategory(categoryValue) {
   resetSearchUI();
   itemDetails.innerHTML = '';
@@ -162,33 +155,46 @@ async function loadCategory(categoryValue) {
     } while (cmcontinue);
 
     currentItems = items.map(({ title, pageid }) => ({ title, pageid }));
-    enableSearchAndLoad(); // ✅ now we have items; allow Load
+    enableSearchAndLoad(); // now items are ready
   } catch (e) {
     console.error('Error loading items:', e);
-    // Even on error, keep the field enabled so user isn’t stuck
     itemSearch.disabled = false;
     itemSearch.placeholder = 'Failed to load items';
     loadItemBtn.disabled = true;
   }
 }
 
-// ------------- Event: category change -------------
+// ------------- Events -------------
 categorySelect.addEventListener('change', () => {
   const val = categorySelect.value;
   if (!val) {
     resetSearchUI();
-    itemSearch.disabled = true;   // truly off when no category
+    itemSearch.disabled = true;
     loadItemBtn.disabled = true;
     return;
   }
-  enableSearchFieldOnly();        // let user start typing immediately
-  loadCategory(val);              // fetch in background
+  enableSearchFieldOnly();
+  loadCategory(val);
 });
 
-// ------------- Search interactions -------------
-itemSearch.addEventListener('input', () => renderSuggestions(getMatches(itemSearch.value)));
-itemSearch.addEventListener('focus', () => renderSuggestions(getMatches(itemSearch.value)));
-itemSearch.addEventListener('blur', () => setTimeout(() => hideSuggestions(), 150));
+itemSearch.addEventListener('input', () => {
+  // only open when user typed something (prevents huge list + layout thrash)
+  if (itemSearch.value.trim().length < MIN_CHARS_TO_OPEN) {
+    hideSuggestions();
+    return;
+  }
+  renderSuggestions(getMatches(itemSearch.value));
+});
+
+itemSearch.addEventListener('focus', () => {
+  if (itemSearch.value.trim().length >= MIN_CHARS_TO_OPEN) {
+    renderSuggestions(getMatches(itemSearch.value));
+  }
+});
+
+itemSearch.addEventListener('blur', () => {
+  setTimeout(() => hideSuggestions(), 150);
+});
 
 itemSearch.addEventListener('keydown', (e) => {
   const children = [...suggestionsBox.children];
@@ -227,7 +233,7 @@ async function loadItemByPageId(pageId) {
   itemDetails.innerHTML = '';
 
   try {
-    // Metadata (get fullurl & title)
+    // Metadata
     const metaRes = await fetch(
       `https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=info&inprop=url&format=json&origin=*`
     );
@@ -237,7 +243,7 @@ async function loadItemByPageId(pageId) {
     const pageTitle = page.title;
     const pageTitleSlug = pageTitle.replace(/ /g, '_');
 
-    // HTML (via CORS proxy)
+    // Page HTML (CORS proxy)
     const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/${pageTitleSlug}`);
     if (!htmlRes.ok) throw new Error(`HTTP ${htmlRes.status}`);
     const htmlText = await htmlRes.text();
@@ -245,11 +251,10 @@ async function loadItemByPageId(pageId) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
 
-    // ---------- Build structured layout ----------
+    // ---------- Layout ----------
     const layout = document.createElement('div');
     layout.className = 'item-layout';
 
-    // Header
     const header = document.createElement('div');
     header.className = 'item-header';
     header.innerHTML = `
@@ -258,21 +263,17 @@ async function loadItemByPageId(pageId) {
     `;
     layout.appendChild(header);
 
-    // Sidebar (Infobox)
     const sidebar = extractInfobox(doc, pageTitle);
     layout.appendChild(sidebar);
 
-    // Main panels
     const main = document.createElement('div');
     const obtainment = extractSection(doc, 'Obtainment');
     const media      = extractSection(doc, 'Media');
-    const crafting   = extractSection(doc, 'Crafting'); // often contains "Crafted By"
+    const crafting   = extractSection(doc, 'Crafting');
     const itemData   = extractSection(doc, 'Item Data');
 
-    [ ['Obtainment', obtainment],
-      ['Media',      media],
-      ['Crafting',   crafting],
-      ['Item Data',  itemData] ].forEach(([title, node]) => {
+    [['Obtainment', obtainment], ['Media', media], ['Crafting', crafting], ['Item Data', itemData]]
+      .forEach(([title, node]) => {
         const p = makePanel(title, node);
         if (p) main.appendChild(p);
       });
@@ -282,9 +283,7 @@ async function loadItemByPageId(pageId) {
       main.appendChild(makePanel('Details', generic || document.createTextNode('No details available.')));
     }
 
-    // Ensure order: main left, sidebar right
     layout.insertBefore(main, sidebar);
-
     itemDetails.innerHTML = '';
     itemDetails.appendChild(layout);
 
@@ -294,7 +293,7 @@ async function loadItemByPageId(pageId) {
   }
 }
 
-// ---------- Section & Infobox helpers ----------
+// ---------- Helpers for sections & infobox ----------
 function extractSection(doc, headingText) {
   const headings = [...doc.querySelectorAll('#mw-content-text h2')];
   const h = headings.find(h2 =>
@@ -334,7 +333,6 @@ function extractInfobox(doc, pageTitle) {
   title.textContent = pageTitle;
   box.appendChild(title);
 
-  // Image (prefer infobox image; else first image on page)
   let imgSrc = found?.querySelector('img')?.src
             || doc.querySelector('#mw-content-text img')?.src
             || null;
@@ -346,7 +344,6 @@ function extractInfobox(doc, pageTitle) {
     box.appendChild(im);
   }
 
-  // Key/value rows from wiki infobox (best-effort)
   if (found) {
     const rows = found.querySelectorAll('tr');
     const usable = [...rows].filter(tr => tr.querySelectorAll('th,td').length >= 2);
