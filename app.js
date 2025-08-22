@@ -51,12 +51,14 @@ categorySelect.addEventListener('change', async () => {
     } while (cmcontinue);
 
     itemSelect.innerHTML = '<option value="">-- Select Item --</option>';
-    items.forEach(item => {
-      const opt = document.createElement('option');
-      opt.value = item.pageid;
-      opt.textContent = item.title;
-      itemSelect.appendChild(opt);
-    });
+    items
+  .filter(item => !item.title.startsWith('Category:')) // 🔥 filter out category links
+  .forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item.pageid;
+    opt.textContent = item.title;
+    itemSelect.appendChild(opt);
+  });
 
     itemSelect.disabled = false;
   } catch (err) {
