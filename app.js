@@ -1,20 +1,46 @@
 /***********************
  * Dune Awakening Explorer
- * app.js — FULL REPLACEMENT with debug logging
+ * app.js — FULL REPLACEMENT (with safety net + logging)
  ***********************/
-console.log('✅ app.js loaded');
+
+// --- SAFETY NET / BOOTSTRAP (runs immediately) ---
+console.log('🔧 app.js loading…');
+
+// show any JS errors loudly
+window.addEventListener('error', (e) => {
+  const s = document.getElementById('status');
+  if (s) s.textContent = `JS error: ${e.message}`;
+  console.error('❌ Global error:', e.error || e.message);
+});
+
+// bootstrap categories ASAP so they show even if later code breaks
+(function bootstrapCategories() {
+  try {
+    const sel = document.getElementById('category-select');
+    if (!sel) { console.warn('category-select not in DOM yet'); return; }
+    if (sel.dataset.bootstrapped === '1') return; // avoid duplicates
+
+    const CATS = [
+      "Items", "Ammo", "Consumables", "Contract Items",
+      "Garments", "Resources", "Tools", "Vehicles", "Weapons"
+    ];
+
+    CATS.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.replace(/\s+/g, '_');
+      opt.textContent = cat;
+      sel.appendChild(opt);
+    });
+    sel.dataset.bootstrapped = '1';
+    console.log('✅ Categories bootstrapped:', CATS);
+  } catch (err) {
+    console.error('❌ bootstrapCategories failed:', err);
+  }
+})();
 
 // ---------------- Config ----------------
-const CATEGORIES = [
-  "Items", "Ammo", "Consumables", "Contract Items",
-  "Garments", "Resources", "Tools", "Vehicles", "Weapons"
-];
-
-// Open suggestions immediately on focus (0 chars)
-const OPEN_THRESHOLD = { default: 0, Items: 0 };
-
-// Cache (24h)
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const OPEN_THRESHOLD = { default: 0, Items: 0 }; // open suggestions immediately
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;        // 24h cache for category lists
 
 // --------------- DOM refs ---------------
 const categorySelect = document.getElementById('category-select');
@@ -30,41 +56,7 @@ let activeIndex = -1;         // keyboard highlight index
 let currentAbort = null;      // abort controller for in-flight category loads
 let currentCategoryName = ''; // human label for threshold map
 
-// ---------- Init ----------
-(function init() {
-  try {
-    console.log('✅ init running…');
-
-    if (!categorySelect) {
-      console.error('❌ #category-select not found in DOM');
-      return;
-    }
-    if (!itemSearch || !suggestionsBox || !loadItemBtn || !itemDetails) {
-      console.error('❌ One or more required elements missing (search/suggestions/button/details)');
-      return;
-    }
-
-    // Keep the default "-- Select Category --" option already in HTML
-    CATEGORIES.forEach(cat => {
-      const opt = document.createElement('option');
-      opt.value = cat.replace(/\s+/g, '_'); // API style
-      opt.textContent = cat;
-      categorySelect.appendChild(opt);
-    });
-    console.log('✅ Categories appended:', CATEGORIES);
-
-    // If a category is already selected, enable search & load
-    if (categorySelect.value) {
-      console.log('ℹ️ Preselected category:', categorySelect.value);
-      enableSearchFieldOnly();
-      loadCategory(categorySelect.value);
-    }
-  } catch (e) {
-    console.error('❌ init failed:', e);
-  }
-})();
-
-// -------------- Helpers -----------------
+// ---------- Helpers: status + UI ----------
 function setStatus(text) { if (statusEl) statusEl.textContent = text || ''; }
 
 function resetSearchUI() {
@@ -87,20 +79,18 @@ function enableSearchAndLoad() {
   loadItemBtn.disabled = false;
 }
 
-function getOpenThreshold() {
-  return OPEN_THRESHOLD[currentCategoryName] ?? OPEN_THRESHOLD.default;
-}
-
 function scoreMatch(q, title) {
   const t = title.toLowerCase();
   if (t.startsWith(q)) return 0;
   const idx = t.indexOf(q);
   return idx === -1 ? 9999 : (100 + idx); // lower is better
 }
-
 function itCmp(a, b) {
   if (a._score !== b._score) return a._score - b._score;
   return a.title.localeCompare(b.title);
+}
+function getOpenThreshold() {
+  return OPEN_THRESHOLD[currentCategoryName] ?? OPEN_THRESHOLD.default;
 }
 
 // Show all items when empty; filter when typing. Keep list scrollable.
@@ -110,7 +100,7 @@ function getMatches(query) {
   if (!q) {
     return [...currentItems]
       .sort((a, b) => a.title.localeCompare(b.title))
-      .slice(0, 1000);
+      .slice(0, 1000); // dropdown scrolls; adjust if desired
   }
 
   return currentItems
@@ -144,13 +134,11 @@ function renderSuggestions(items) {
   suggestionsBox.classList.remove('hidden');
   itemSearch.setAttribute('aria-expanded', 'true');
 }
-
 function hideSuggestions() {
   suggestionsBox.classList.add('hidden');
   itemSearch.setAttribute('aria-expanded', 'false');
   activeIndex = -1;
 }
-
 function highlight(index) {
   const children = [...suggestionsBox.children];
   children.forEach(c => c.classList.remove('active'));
@@ -161,13 +149,11 @@ function highlight(index) {
     itemSearch.setAttribute('aria-activedescendant', '');
   }
 }
-
 function chooseSuggestion(item) {
   itemSearch.value = item.title;
   hideSuggestions();
   loadItemByPageId(item.pageid);
 }
-
 function findExactByTitle(t) {
   const q = t.trim().toLowerCase();
   return currentItems.find(i => i.title.toLowerCase() === q) || null;
@@ -234,7 +220,7 @@ async function loadCategory(categoryValue) {
       url.searchParams.set('cmlimit', '100');
       url.searchParams.set('format', 'json');
       url.searchParams.set('origin', '*');
-      url.searchParams.set('cmtype', 'page'); // only pages
+      url.searchParams.set('cmtype', 'page'); // only pages (no Category:/File:)
       if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
 
       const res = await fetch(url, { signal: currentAbort.signal });
@@ -428,12 +414,26 @@ async function loadItemByPageId(pageId) {
   }
 }
 
-// ---------- Helpers ----------
+// ---------- Utilities ----------
 async function resJSON(res) {
   const t = await res.text();
   try { return JSON.parse(t); } catch { throw new Error('Invalid JSON'); }
 }
 
+// --- NEW: make relative wiki links/images absolute so they work in our app
+function absolutizeUrls(root, base = 'https://awakening.wiki') {
+  const fix = (url) => {
+    if (!url) return url;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    if (url.startsWith('//')) return 'https:' + url;   // protocol-relative
+    if (url.startsWith('/'))  return base + url;       // site-absolute
+    return url;                                        // relative (rare in infobox)
+  };
+  root.querySelectorAll('img[src]').forEach(img => img.src = fix(img.getAttribute('src')));
+  root.querySelectorAll('a[href]').forEach(a => a.href = fix(a.getAttribute('href')));
+}
+
+// --- Infobox & sections ---
 function extractSection(doc, headingText) {
   const headings = [...doc.querySelectorAll('#mw-content-text h2')];
   const h = headings.find(h2 =>
@@ -463,20 +463,7 @@ function makePanel(title, contentNode) {
   return wrap;
 }
 
-// --- NEW: make relative wiki links/images absolute so they work in our app
-function absolutizeUrls(root, base = 'https://awakening.wiki') {
-  const fix = (url) => {
-    if (!url) return url;
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
-    if (url.startsWith('//')) return 'https:' + url;   // protocol-relative
-    if (url.startsWith('/'))  return base + url;       // site-absolute
-    return url;                                        // relative (rare in infobox)
-  };
-  root.querySelectorAll('img[src]').forEach(img => img.src = fix(img.getAttribute('src')));
-  root.querySelectorAll('a[href]').forEach(a => a.href = fix(a.getAttribute('href')));
-}
-
-// --- DROP-IN REPLACEMENT ---
+// --- DROP-IN REPLACEMENT: full infobox clone with URL fixups ---
 function extractInfobox(doc, pageTitle) {
   // Try common infobox containers used by the site
   const found = doc.querySelector('.infobox, .portable-infobox, .infobox-wrapper, aside.infobox');
@@ -498,8 +485,7 @@ function extractInfobox(doc, pageTitle) {
     // Ensure images/links work outside the wiki
     absolutizeUrls(cloned);
 
-    // Slim the outer wrapper a bit so it fits our sidebar
-    // (optional: you can also strip redundant titles inside the cloned node)
+    // Append as-is (keeps styles/markup)
     box.appendChild(cloned);
     return box;
   }
@@ -526,27 +512,46 @@ function extractInfobox(doc, pageTitle) {
   return box;
 }
 
-  if (found) {
-    const rows = found.querySelectorAll('tr');
-    const usable = [...rows].filter(tr => tr.querySelectorAll('th,td').length >= 2);
-    if (usable.length) {
-      const table = document.createElement('table');
-      const tbody = document.createElement('tbody');
-      usable.forEach(tr => {
-        const cells = tr.querySelectorAll('th, td');
-        const trNew = document.createElement('tr');
-        const th = document.createElement('th');
-        const td = document.createElement('td');
-        th.innerHTML = cells[0].innerHTML;
-        td.innerHTML = cells[1].innerHTML;
-        tbody.appendChild(trNew);
-      });
-      if (tbody.childNodes.length) {
-        table.appendChild(tbody);
-        box.appendChild(table);
-      }
-    }
-  }
+// --- MAIN INIT (hardened) ---
+(function init() {
+  try {
+    console.log('✅ init running');
 
-  return box;
-}
+    const sel = document.getElementById('category-select');
+    const search = document.getElementById('item-search');
+    const btn = document.getElementById('load-item-btn');
+    const suggestions = document.getElementById('item-suggestions');
+    const details = document.getElementById('item-details');
+
+    if (!sel || !search || !btn || !suggestions || !details) {
+      throw new Error('One or more required DOM elements not found');
+    }
+
+    // If bootstrap ran first, the select already has options — that’s fine.
+    if (sel.dataset.bootstrapped !== '1') {
+      const CATEGORIES = [
+        "Items", "Ammo", "Consumables", "Contract Items",
+        "Garments", "Resources", "Tools", "Vehicles", "Weapons"
+      ];
+      CATEGORIES.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat.replace(/\s+/g, '_');
+        opt.textContent = cat;
+        sel.appendChild(opt);
+      });
+      sel.dataset.bootstrapped = '1';
+      console.log('✅ Categories appended by init');
+    }
+
+    // If a category is preselected, enable search & load it
+    if (sel.value) {
+      console.log('ℹ️ Preselected category:', sel.value);
+      enableSearchFieldOnly();
+      loadCategory(sel.value);
+    }
+  } catch (e) {
+    const s = document.getElementById('status');
+    if (s) s.textContent = `Init failed: ${e.message}`;
+    console.error('❌ init failed:', e);
+  }
+})();
