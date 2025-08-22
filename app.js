@@ -1,19 +1,16 @@
+/***********************
+ * Dune Awakening Explorer
+ * app.js (full replacement)
+ ***********************/
+
 // ---------------- Config ----------------
-const categories = [
+const CATEGORIES = [
   "Items", "Ammo", "Consumables", "Contract Items",
   "Garments", "Resources", "Tools", "Vehicles", "Weapons"
 ];
 
-// UI thresholds: huge categories need more chars before opening suggestions
--const OPEN_THRESHOLD = {
--  default: 1,
--  Items: 2  // Items is huge → type 2 chars before opening list
--};
-+const OPEN_THRESHOLD = {
-+  default: 0,
-+  Items: 0
-+};
-
+// UI thresholds: open suggestions immediately (0 chars)
+const OPEN_THRESHOLD = { default: 0, Items: 0 };
 
 // Cache (24h)
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -30,18 +27,24 @@ const statusEl       = document.getElementById('status');
 let currentItems = [];       // [{ title, pageid }]
 let activeIndex = -1;        // keyboard highlight index
 let currentAbort = null;     // abort controller for in-flight category loads
-let currentCategoryName = ''; // "Items", "Ammo", ...
+let currentCategoryName = ''; // human label for threshold map
 
-// ---------- Populate categories ----------
-(function initCategories() {
-  categories.forEach(cat => {
-    const o = document.createElement('option');
-    o.value = cat.replace(/\s+/g, '_');
-    o.textContent = cat;
-    categorySelect.appendChild(o);
+// ---------- Init ----------
+(function init() {
+  // 1) Populate categories
+  if (!categorySelect) {
+    console.error('category-select element not found in DOM');
+    return;
+  }
+  // Keep the default "-- Select Category --" option already in HTML
+  CATEGORIES.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat.replace(/\s+/g, '_'); // API category name uses underscores
+    opt.textContent = cat;
+    categorySelect.appendChild(opt);
   });
 
-  // If a category is preselected, enable search and load it
+  // 2) If a category is preselected, enable search and load it
   if (categorySelect.value) {
     enableSearchFieldOnly();
     loadCategory(categorySelect.value);
@@ -49,6 +52,8 @@ let currentCategoryName = ''; // "Items", "Ammo", ...
 })();
 
 // -------------- Helpers -----------------
+function setStatus(text) { if (statusEl) statusEl.textContent = text || ''; }
+
 function resetSearchUI() {
   itemSearch.value = '';
   itemSearch.placeholder = 'Search or select an item…';
@@ -59,10 +64,6 @@ function resetSearchUI() {
   setStatus('');
 }
 
-function setStatus(text) {
-  statusEl.textContent = text || '';
-}
-
 function enableSearchFieldOnly() {
   itemSearch.disabled = false;
   loadItemBtn.disabled = true;
@@ -71,6 +72,10 @@ function enableSearchFieldOnly() {
 function enableSearchAndLoad() {
   itemSearch.disabled = false;
   loadItemBtn.disabled = false;
+}
+
+function getOpenThreshold() {
+  return OPEN_THRESHOLD[currentCategoryName] ?? OPEN_THRESHOLD.default;
 }
 
 function scoreMatch(q, title) {
@@ -85,37 +90,22 @@ function itCmp(a, b) {
   return a.title.localeCompare(b.title);
 }
 
-function getOpenThreshold() {
-  return OPEN_THRESHOLD[currentCategoryName] ?? OPEN_THRESHOLD.default;
+// Show all items when empty; filter when typing. Keep list scrollable.
+function getMatches(query) {
+  const q = query.trim().toLowerCase();
+
+  if (!q) {
+    return [...currentItems]
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .slice(0, 1000);
+  }
+
+  return currentItems
+    .map(it => ({ ...it, _score: scoreMatch(q, it.title) }))
+    .filter(it => it._score < 9999)
+    .sort(itCmp)
+    .slice(0, 1000);
 }
-
--function getMatches(query) {
--  const q = query.trim().toLowerCase();
--  if (!q) return [];
--  return currentItems
--    .map(it => ({...it, _score: scoreMatch(q, it.title)}))
--    .filter(it => it._score < 9999)
--    .sort(itCmp)
--    .slice(0, 300); // show up to 300 results; scroll for the rest
--}
-+function getMatches(query) {
-+  const q = query.trim().toLowerCase();
-+
-+  // When nothing typed: show the whole list (alphabetical), capped to keep UI fast
-+  if (!q) {
-+    return [...currentItems]
-+      .sort((a, b) => a.title.localeCompare(b.title))
-+      .slice(0, 1000); // dropdown is scrollable; adjust if you want
-+  }
-+
-+  // Typed query: score + filter + sort
-+  return currentItems
-+    .map(it => ({ ...it, _score: scoreMatch(q, it.title) }))
-+    .filter(it => it._score < 9999)
-+    .sort(itCmp)
-+    .slice(0, 1000);
-+}
-
 
 function renderSuggestions(items) {
   suggestionsBox.innerHTML = '';
@@ -170,14 +160,10 @@ function findExactByTitle(t) {
 }
 
 // -------- localStorage cache helpers --------
-function cacheKeyFor(cat) {
-  return `awakening-category:${cat}`;
-}
+function cacheKeyFor(cat) { return `awakening-category:${cat}`; }
 function saveCache(cat, items) {
-  try {
-    const blob = { ts: Date.now(), items };
-    localStorage.setItem(cacheKeyFor(cat), JSON.stringify(blob));
-  } catch {}
+  try { localStorage.setItem(cacheKeyFor(cat), JSON.stringify({ ts: Date.now(), items })); }
+  catch {}
 }
 function loadCache(cat) {
   try {
@@ -185,7 +171,7 @@ function loadCache(cat) {
     if (!raw) return null;
     const blob = JSON.parse(raw);
     if (!blob || !Array.isArray(blob.items) || typeof blob.ts !== 'number') return null;
-    if (Date.now() - blob.ts > CACHE_TTL_MS) return null; // expired
+    if (Date.now() - blob.ts > CACHE_TTL_MS) return null;
     return blob.items;
   } catch { return null; }
 }
@@ -194,25 +180,25 @@ function loadCache(cat) {
 async function loadCategory(categoryValue) {
   resetSearchUI();
   itemDetails.innerHTML = '';
-  currentCategoryName = categoryValue.replace(/_/g, ' '); // for threshold map
+  currentCategoryName = categoryValue.replace(/_/g, ' ');
 
   // Abort any in-flight previous load
   if (currentAbort) currentAbort.abort();
   currentAbort = new AbortController();
 
-  // 1) Use cache if present (instant)
+  // 1) Try cache for instant UX
   const cached = loadCache(categoryValue);
   if (cached) {
     currentItems = cached;
     enableSearchAndLoad();
     setStatus(`Loaded ${cached.length} items (cached)`);
-    // Also refresh in background silently to keep cache warm
-    try { refreshCategoryInBackground(categoryValue, currentAbort.signal); } catch {}
+    // Warm cache in background
+    refreshCategoryInBackground(categoryValue, currentAbort.signal).catch(() => {});
     return;
   }
 
-  // 2) Fresh load incrementally
-  enableSearchFieldOnly(); // type immediately while we fetch
+  // 2) Fresh incremental load
+  enableSearchFieldOnly();
   currentItems = [];
   setStatus('Loading…');
 
@@ -229,7 +215,7 @@ async function loadCategory(categoryValue) {
       url.searchParams.set('cmlimit', '100');
       url.searchParams.set('format', 'json');
       url.searchParams.set('origin', '*');
-      url.searchParams.set('cmtype', 'page'); // only pages
+      url.searchParams.set('cmtype', 'page');
       if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
 
       const res = await fetch(url, { signal: currentAbort.signal });
@@ -241,7 +227,6 @@ async function loadCategory(categoryValue) {
       loadedCount += batch.length;
       setStatus(`Loading… ${loadedCount} items`);
 
-      // Show the first 100 immediately; keep fetching in background
       if (!firstBatchShown && currentItems.length >= 100) {
         enableSearchAndLoad();
         firstBatchShown = true;
@@ -250,12 +235,11 @@ async function loadCategory(categoryValue) {
       cmcontinue = data.continue?.cmcontinue;
     } while (cmcontinue);
 
-    // Finalize
     if (!firstBatchShown) enableSearchAndLoad();
     saveCache(categoryValue, currentItems);
     setStatus(`Loaded ${currentItems.length} items`);
   } catch (e) {
-    if (e.name === 'AbortError') return; // switched categories
+    if (e.name === 'AbortError') return;
     console.error('Error loading items:', e);
     itemSearch.disabled = false;
     itemSearch.placeholder = 'Failed to load items';
@@ -264,7 +248,7 @@ async function loadCategory(categoryValue) {
   }
 }
 
-// Background refresh that does not touch UI/state until done
+// Background refresh
 async function refreshCategoryInBackground(categoryValue, signal) {
   let items = [];
   let cmcontinue = null;
@@ -287,9 +271,7 @@ async function refreshCategoryInBackground(categoryValue, signal) {
     cmcontinue = data.continue?.cmcontinue;
   } while (cmcontinue);
 
-  // Only update cache if still on same category
   saveCache(categoryValue, items);
-  // If user is still on this category, update memory in place
   if (categorySelect.value === categoryValue) {
     currentItems = items;
     setStatus(`Loaded ${currentItems.length} items (refreshed)`);
@@ -310,28 +292,13 @@ categorySelect.addEventListener('change', () => {
   loadCategory(val);
 });
 
--itemSearch.addEventListener('input', () => {
--  if (itemSearch.value.trim().length < getOpenThreshold()) {
--    hideSuggestions();
--    return;
--  }
--  renderSuggestions(getMatches(itemSearch.value));
--});
--
--itemSearch.addEventListener('focus', () => {
--  if (itemSearch.value.trim().length >= getOpenThreshold()) {
--    renderSuggestions(getMatches(itemSearch.value));
--  }
--});
-+itemSearch.addEventListener('input', () => {
-+  renderSuggestions(getMatches(itemSearch.value));
-+});
-+
-+itemSearch.addEventListener('focus', () => {
-+  renderSuggestions(getMatches(itemSearch.value));
-+});
-
-
+// Always open list on focus and filter as you type
+itemSearch.addEventListener('input', () => {
+  renderSuggestions(getMatches(itemSearch.value));
+});
+itemSearch.addEventListener('focus', () => {
+  renderSuggestions(getMatches(itemSearch.value));
+});
 itemSearch.addEventListener('blur', () => setTimeout(() => hideSuggestions(), 150));
 
 itemSearch.addEventListener('keydown', (e) => {
@@ -376,7 +343,7 @@ async function loadItemByPageId(pageId) {
       `https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=info&inprop=url&format=json&origin=*`
     );
     if (!metaRes.ok) throw new Error(`HTTP ${metaRes.status}`);
-    const meta = await metaRes.json();
+    const meta = await resJSON(metaRes);
     const page = meta.query.pages[pageId];
     const pageTitle = page.title;
     const pageTitleSlug = pageTitle.replace(/ /g, '_');
@@ -432,6 +399,11 @@ async function loadItemByPageId(pageId) {
 }
 
 // ---------- Helpers ----------
+async function resJSON(res) {
+  const t = await res.text();
+  try { return JSON.parse(t); } catch { throw new Error('Invalid JSON'); }
+}
+
 function extractSection(doc, headingText) {
   const headings = [...doc.querySelectorAll('#mw-content-text h2')];
   const h = headings.find(h2 =>
