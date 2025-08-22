@@ -1,12 +1,12 @@
 body {
   font-family: sans-serif;
   margin: 2rem;
-  background-color: #000; /* 🔧 Page background to black */
-  color: #e0e0e0;          /* 🔧 Base text color */
+  background-color: #000; /* Full black background */
+  color: #e0e0e0;         /* Base text color */
 }
 
 h1 {
-  color: #e0e0e0; /* 🔧 Match title text color to rest of the text */
+  color: #e0e0e0; /* Title matches text color */
   margin-bottom: 1rem;
 }
 
@@ -15,7 +15,7 @@ h1 {
   padding: 0.5rem;
 }
 
-/* Unified, clean item details box */
+/* Unified item details box */
 #item-details {
   background-color: #1a1a1a;
   color: #e0e0e0;
@@ -25,6 +25,13 @@ h1 {
   margin-top: 1.5rem;
   border: 1px solid #333;
   line-height: 1.4;
+}
+
+/* Headings inside item details */
+#item-details h2,
+#item-details h3,
+#item-details h4 {
+  margin: 0.5em 0 0.3em;
 }
 
 /* Paragraph spacing */
