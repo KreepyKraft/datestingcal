@@ -12,12 +12,12 @@ h1 {
   letter-spacing: .2px;
 }
 
-/* Controls row: keep on one line so category never moves */
+/* Controls row: keep one line; dropdown won’t jump */
 #controls {
   display: flex;
   gap: .75rem;
   align-items: center;
-  flex-wrap: nowrap;               /* <-- prevents jumping */
+  flex-wrap: nowrap;
   margin-bottom: 1rem;
 }
 
@@ -30,16 +30,23 @@ h1 {
   border-radius: 6px;
 }
 
+/* Status text */
+#status {
+  min-width: 160px;
+  color: #bdbdbd;
+  font-size: .95rem;
+}
+
 /* Custom combobox */
 .combo {
-  position: relative;              /* anchor for absolute dropdown */
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: .4rem;
 }
 
 #item-search {
-  width: 560px;                    /* <-- bigger input */
+  width: 560px;
   padding: .55rem .7rem;
   font-size: 1rem;
   background: #111;
@@ -66,7 +73,7 @@ h1 {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  width: 560px;                   /* match input width */
+  width: 560px;
   max-height: 360px;
   overflow: auto;
   background: #1a1a1a;
@@ -121,7 +128,7 @@ h1 {
 .infobox .infobox-img {
   display: block;
   margin: .5rem auto .75rem;
-  max-width: 300px;  /* large image */
+  max-width: 300px;
   width: 100%;
   height: auto;
 }
