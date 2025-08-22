@@ -1,0 +1,17 @@
+body {
+  font-family: sans-serif;
+  margin: 2rem;
+}
+#controls select {
+  margin-right: 1rem;
+  padding: 0.5rem;
+}
+#item-details {
+  margin-top: 1.5rem;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  background: #f9f9f9;
+}
+#item-details p {
+  margin: 0.3rem 0;
+}
