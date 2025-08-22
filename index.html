@@ -9,12 +9,10 @@
   <h1>Dune Awakening Explorer</h1>
 
   <div id="controls">
-    <!-- Keep the category dropdown -->
     <select id="category-select" aria-label="Select category">
       <option value="">-- Select Category --</option>
     </select>
 
-    <!-- Custom searchable combobox -->
     <div class="combo" id="item-combo" aria-haspopup="listbox" aria-owns="item-suggestions">
       <input
         id="item-search"
@@ -28,9 +26,10 @@
       />
       <button id="load-item-btn" disabled>Load</button>
 
-      <!-- Suggestions dropdown -->
       <div id="item-suggestions" class="suggestions hidden" role="listbox"></div>
     </div>
+
+    <div id="status" aria-live="polite"></div>
   </div>
 
   <div id="item-details"></div>
