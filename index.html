@@ -4,14 +4,48 @@
   <meta charset="UTF-8">
   <title>Dune Awakening Explorer</title>
   <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+      background: #fdfdfd;
+    }
+
+    #controls {
+      margin-bottom: 1rem;
+    }
+
+    select {
+      margin-right: 1rem;
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+
+    #item-details {
+      border-top: 1px solid #ccc;
+      margin-top: 2rem;
+      padding-top: 1rem;
+    }
+
+    #item-details img {
+      margin: 1rem 0;
+      max-width: 200px;
+      display: block;
+    }
+
+    a {
+      color: #0077cc;
+    }
+  </style>
 </head>
 <body>
-  <h1>Dune Awakening Explorer</h1>
+  <h1>Dune Awakening Data Explorer</h1>
 
   <div id="controls">
     <select id="category-select">
       <option value="">-- Select Category --</option>
     </select>
+
     <select id="item-select" disabled>
       <option value="">-- Select Item --</option>
     </select>
