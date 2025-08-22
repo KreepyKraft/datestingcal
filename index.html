@@ -9,24 +9,30 @@
   <h1>Dune Awakening Explorer</h1>
 
   <div id="controls">
+    <!-- Keep the category dropdown -->
     <select id="category-select" aria-label="Select category">
       <option value="">-- Select Category --</option>
     </select>
 
-    <input
-      id="item-search"
-      list="item-datalist"
-      placeholder="Search or pick an item…"
-      autocomplete="off"
-      disabled
-      aria-label="Search item"
-    />
-    <datalist id="item-datalist"></datalist>
+    <!-- Custom searchable combobox -->
+    <div class="combo" id="item-combo" aria-haspopup="listbox" aria-owns="item-suggestions">
+      <input
+        id="item-search"
+        type="text"
+        placeholder="Search or select an item…"
+        aria-autocomplete="list"
+        aria-expanded="false"
+        aria-controls="item-suggestions"
+        aria-activedescendant=""
+        disabled
+      />
+      <button id="load-item-btn" disabled>Load</button>
 
-    <button id="load-item-btn" disabled>Load</button>
+      <!-- Suggestions dropdown -->
+      <div id="item-suggestions" class="suggestions hidden" role="listbox"></div>
+    </div>
   </div>
 
-  <!-- Our structured result root -->
   <div id="item-details"></div>
 
   <script src="app.js"></script>
