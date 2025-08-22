@@ -22,17 +22,33 @@ categorySelect.addEventListener('change', async () => {
   itemDetails.innerHTML = '';
 
   if (!selectedCategory) {
-    itemSelect.innerHTML = '<option>-- Select Item --</option>';
+    itemSelect.innerHTML = '<option value="">-- Select Item --</option>';
     return;
   }
 
   try {
-    const apiUrl = `https://awakening.wiki/api.php?action=query&list=categorymembers&cmtitle=Category:${encodeURIComponent(selectedCategory)}&cmlimit=100&format=json&origin=*`;
-    const res = await fetch(apiUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+    let items = [];
+    let cmcontinue = null;
 
-    const items = json.query?.categorymembers || [];
+    do {
+      const url = new URL('https://awakening.wiki/api.php');
+      url.searchParams.set('action', 'query');
+      url.searchParams.set('list', 'categorymembers');
+      url.searchParams.set('cmtitle', `Category:${selectedCategory}`);
+      url.searchParams.set('cmlimit', '100');
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('origin', '*');
+      if (cmcontinue) {
+        url.searchParams.set('cmcontinue', cmcontinue);
+      }
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      items = items.concat(data.query.categorymembers);
+      cmcontinue = data.continue?.cmcontinue;
+    } while (cmcontinue);
 
     itemSelect.innerHTML = '<option value="">-- Select Item --</option>';
     items.forEach(item => {
@@ -47,6 +63,8 @@ categorySelect.addEventListener('change', async () => {
     console.error('Error loading items:', err);
     itemSelect.innerHTML = '<option>Error loading items</option>';
   }
+});
+
 });
 
 itemSelect.addEventListener('change', async () => {
