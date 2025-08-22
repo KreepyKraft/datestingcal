@@ -63,7 +63,7 @@ itemSelect.addEventListener('change', async () => {
     const pageTitle = page.title.replace(/ /g, '_');
 
     // Step 2: Fetch the full page HTML using a CORS proxy
-    const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/wiki/${pageTitle}`);
+    const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/${pageTitle}`);
     const htmlText = await htmlRes.text();
 
     // Step 3: Parse the HTML
