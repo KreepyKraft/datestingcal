@@ -478,6 +478,28 @@ function extractInfobox(doc, pageTitle) {
   if (found) {
     // Clone the ENTIRE infobox so we keep rich content (bars, nested tables, etc.)
     const cloned = found.cloneNode(true);
+// Remove redundant titles inside the infobox (we already show a page header)
+const titleLikeSelectors = [
+  '.pi-title',           // PortableInfobox title
+  '.infobox-title',      // some themes
+  '.infobox-header',     // common header class
+  'h1', 'h2', 'h3',      // plain headings sometimes used
+  '.mw-headline'         // generic MediaWiki headline node
+];
+
+// remove by selector
+cloned.querySelectorAll(titleLikeSelectors.join(',')).forEach(node => {
+  const text = (node.textContent || '').trim().toLowerCase();
+  const want = (pageTitle || '').trim().toLowerCase();
+  if (!text || text === want) node.remove();
+});
+
+// some pages wrap the title in a <caption> of a top table
+cloned.querySelectorAll('caption').forEach(node => {
+  const text = (node.textContent || '').trim().toLowerCase();
+  const want = (pageTitle || '').trim().toLowerCase();
+  if (text === want) node.remove();
+});
 
     // Remove edit chevrons/anchors if present
     cloned.querySelectorAll('.mw-editsection, .mw-editsection-visualeditor').forEach(n => n.remove());
