@@ -216,3 +216,43 @@ h1 {
   .item-layout { grid-template-columns: 1fr; }
   .infobox { max-width: 100%; margin: 0; }
 }
+/* === Fix search box clipping & width === */
+#controls {
+  width: 100%;
+  overflow: visible;     /* ensure dropdown isn’t clipped */
+}
+
+.combo {
+  flex: 1 1 820px;       /* grow to fill the row */
+  min-width: 320px;
+  max-width: 100%;
+}
+
+#item-search {
+  width: 100%;           /* take all available width in the combo */
+}
+
+/* Make the suggestions exactly match the input width and never overflow page */
+.suggestions {
+  width: 100%;                 /* match #item-search width */
+  max-width: 100%;
+  left: 0;
+  right: auto;
+  max-height: min(420px, 60vh); /* sensible height without page overflow */
+}
+
+/* === Remove inner-page scrollbar on results container === */
+/* We previously had:  #item-details, .panel, .infobox { overflow-x:auto; }  */
+/* Keep overflow only on boxes; not on the whole results area. */
+.panel, .infobox {
+  max-width: 100%;
+  overflow-x: auto;     /* local horizontal scroll if absolutely necessary */
+}
+#item-details {
+  overflow: visible;     /* inherit page’s scroll only */
+}
+
+/* === Defensive: prevent layout from forcing page-wide horizontal scroll === */
+.item-layout { overflow-x: hidden; }      /* keep overall layout tidy */
+.item-layout > * { min-width: 0; }        /* allow children to shrink */
+}
