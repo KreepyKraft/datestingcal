@@ -394,7 +394,7 @@ function absolutizeUrls(root, base='https://awakening.wiki') {
   root.querySelectorAll('a[href]').forEach(a=>a.href = fix(a.getAttribute('href')));
 }
 
-/* === NEW: robust infobox clone (no duplicate titles, no inner scrollbars) === */
+/* === STRONGER INFOBOX CLONE — no duplicate titles, no inner scrollbars === */
 function extractInfobox(doc, pageTitle) {
   const found = doc.querySelector(
     '.infobox, .portable-infobox, .infobox-wrapper, aside.infobox, .pi-box, table.infobox'
@@ -403,44 +403,141 @@ function extractInfobox(doc, pageTitle) {
   const box = document.createElement('aside');
   box.className = 'infobox';
 
+  // Normalizers
   const norm = (s) =>
-    (s || '').replace(/\s+/g, ' ').replace(/[’'"]/g, "'").trim().toLowerCase();
-  const pageNorm = norm(pageTitle);
-  const pageNoSlash = norm(pageTitle.replace(/\/.*$/, ''));
+    (s || '')
+      .replace(/\s+/g, ' ')
+      .replace(/[’'"]/g, "'")
+      .trim()
+      .toLowerCase();
+
+  const clean = (s) =>
+    norm(s).replace(/[^a-z0-9]+/g, ' ').trim(); // strip punctuation/underscores/slashes
+
+  // Title variants to match against
+  const fullNorm    = clean(pageTitle);
+  const noSlashNorm = clean(pageTitle.replace(/\/.*$/, '')); // "Foo/Schematic" -> "Foo"
+
+  const titleVariants = new Set([
+    fullNorm,
+    noSlashNorm,
+    `${noSlashNorm} schematic`,
+    `${noSlashNorm} learnable schematic`,
+    `${noSlashNorm} unique schematic`,
+    `${noSlashNorm} schematic unique`, // catch weird orderings
+  ]);
+
+  const looksLikeTitleVariant = (txt) => {
+    const c = clean(txt);
+    if (!c) return false;
+    if (titleVariants.has(c)) return true;
+    // "Foo … Schematic" (extra words in between)
+    if (c.startsWith(noSlashNorm) && c.includes('schematic')) return true;
+    return false;
+  };
 
   if (found) {
     const cloned = found.cloneNode(true);
 
-    // Remove gadgets/editors
-    cloned.querySelectorAll(
-      '.mw-editsection, .mw-editsection-visualeditor, .pi-edit-link, .mw-collapsible-toggle'
-    ).forEach(n => n.remove());
+    // Remove edit controls/collapsers
+    cloned
+      .querySelectorAll(
+        '.mw-editsection, .mw-editsection-visualeditor, .pi-edit-link, .mw-collapsible-toggle'
+      )
+      .forEach((n) => n.remove());
 
-    // Remove duplicate title elements
-    const titleCandidates = cloned.querySelectorAll(
-      ['.pi-title','.infobox-title','.infobox-header','caption','.mw-headline','h1','h2','h3','thead tr th'].join(',')
-    );
-    titleCandidates.forEach(el => {
-      const t = norm(el.textContent);
-      if (t === pageNorm || t === pageNoSlash) el.remove();
+    // Remove duplicate title elements/captions/headers
+    const titleSel = [
+      '.pi-title',
+      '.infobox-title',
+      '.infobox-header',
+      'caption',
+      '.mw-headline',
+      'h1',
+      'h2',
+      'h3',
+      'thead tr th',
+    ].join(',');
+
+    cloned.querySelectorAll(titleSel).forEach((el) => {
+      const t = el.textContent || '';
+      if (looksLikeTitleVariant(t)) el.remove();
     });
 
-    // Remove header rows that repeat the title
-    cloned.querySelectorAll('tr').forEach(tr => {
+    // Remove header rows where the first cell repeats the title variant
+    cloned.querySelectorAll('tr').forEach((tr) => {
       const first = tr.querySelector('th, td');
       if (!first) return;
-      const t = norm(first.textContent);
-      if (t === pageNorm || t === pageNoSlash) tr.remove();
+      if (looksLikeTitleVariant(first.textContent || '')) tr.remove();
     });
 
-    // Kill any inline overflow/max-height that would create inner scrollbars
+    // Remove obvious placeholder rows like "[[File:]]"
+    cloned.querySelectorAll('td, th').forEach((cell) => {
+      const txt = (cell.textContent || '').trim();
+      if (!txt) return;
+      if (txt === '[[File:]]' || txt === '[[File: ]]') {
+        const row = cell.closest('tr');
+        if (row) row.remove();
+      }
+    });
+
+    // Some templates set inline overflow/max-height; kill inner vertical scrollbars
     cloned.style.overflow = 'visible';
-    cloned.querySelectorAll('[style]').forEach(el => {
+    cloned.querySelectorAll('[style]').forEach((el) => {
       const s = el.getAttribute('style') || '';
       if (/overflow|max-height/i.test(s)) {
         el.style.overflow = 'visible';
         el.style.maxHeight = 'none';
       }
+    });
+
+    // Fix relative links/images to absolute
+    absolutizeUrls(cloned);
+
+    // Add our title only if none remains
+    const stillHasTitle = cloned.querySelector(
+      '.pi-title, .infobox-title, .infobox-header, caption, .mw-headline, h1, h2, h3'
+    );
+    if (!stillHasTitle) {
+      const t = document.createElement('div');
+      t.className = 'infobox-title';
+      t.textContent = pageTitle;
+      box.appendChild(t);
+    }
+
+    box.appendChild(cloned);
+    return box;
+  }
+
+  // Fallbacks when no recognizable infobox exists
+  const kvTable = doc.querySelector('#mw-content-text table');
+  if (kvTable) {
+    const simple = kvTable.cloneNode(true);
+    absolutizeUrls(simple);
+    const t = document.createElement('div');
+    t.className = 'infobox-title';
+    t.textContent = pageTitle;
+    box.appendChild(t);
+    box.appendChild(simple);
+    return box;
+  }
+
+  const anyImg = doc.querySelector('#mw-content-text img');
+  if (anyImg) {
+    const t = document.createElement('div');
+    t.className = 'infobox-title';
+    t.textContent = pageTitle;
+    box.appendChild(t);
+
+    const im = document.createElement('img');
+    im.className = 'infobox-img';
+    im.src = anyImg.src;
+    im.alt = pageTitle;
+    box.appendChild(im);
+  }
+
+  return box;
+}
     });
 
     absolutizeUrls(cloned);
