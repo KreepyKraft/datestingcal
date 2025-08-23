@@ -1,12 +1,12 @@
 /***********************
  * Dune Awakening Explorer
- * app.js — FULL REPLACEMENT (with safety net + logging)
+ * app.js — FULL REPLACEMENT (tree-aware categories + safety net + logging)
  ***********************/
 
 // --- SAFETY NET / BOOTSTRAP (runs immediately) ---
 console.log('🔧 app.js loading…');
 
-// show any JS errors loudly
+// surface any JS errors in UI + console
 window.addEventListener('error', (e) => {
   const s = document.getElementById('status');
   if (s) s.textContent = `JS error: ${e.message}`;
@@ -40,7 +40,8 @@ window.addEventListener('error', (e) => {
 
 // ---------------- Config ----------------
 const OPEN_THRESHOLD = { default: 0, Items: 0 }; // open suggestions immediately
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;        // 24h cache for category lists
+const CACHE_TTL_MS   = 24 * 60 * 60 * 1000;      // 24h cache for category lists
+const CACHE_VERSION  = 'v2';                      // bump to ignore old shallow caches
 
 // --------------- DOM refs ---------------
 const categorySelect = document.getElementById('category-select');
@@ -160,7 +161,7 @@ function findExactByTitle(t) {
 }
 
 // -------- localStorage cache helpers --------
-function cacheKeyFor(cat) { return `awakening-category:${cat}`; }
+function cacheKeyFor(cat) { return `awakening-category:${CACHE_VERSION}:${cat}`; }
 function saveCache(cat, items) {
   try {
     localStorage.setItem(cacheKeyFor(cat), JSON.stringify({ ts: Date.now(), items }));
@@ -179,7 +180,61 @@ function loadCache(cat) {
   } catch { return null; }
 }
 
-// ------------- Category fetch (incremental + cached) -------------
+/* ============================================================
+   Category tree fetcher (pages + all subcategories, BFS)
+   ============================================================ */
+async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4) {
+  // categoryValue like "Weapons" or "Contract_Items"
+  const start = `Category:${categoryValue}`;
+
+  const toVisit  = [{ title: start, depth: 0 }];
+  const seenCats = new Set([start]);       // category titles we've queued
+  const pages    = new Map();              // pageid -> { title, pageid }
+
+  while (toVisit.length) {
+    const { title, depth } = toVisit.shift();
+
+    // Pull both pages and subcats for this category (incrementally with continue)
+    let cmcontinue = null;
+    do {
+      const url = new URL('https://awakening.wiki/api.php');
+      url.searchParams.set('action', 'query');
+      url.searchParams.set('list', 'categorymembers');
+      url.searchParams.set('cmtitle', title);
+      url.searchParams.set('cmlimit', '500');        // bigger batch
+      url.searchParams.set('cmtype', 'page|subcat'); // pages + subcats
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('origin', '*');
+      if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
+
+      const res = await fetch(url, { signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const members = data.query?.categorymembers ?? [];
+
+      for (const m of members) {
+        if (m.title.startsWith('Category:')) {
+          // traverse subcategories up to maxDepth
+          if (depth < maxDepth && !seenCats.has(m.title)) {
+            seenCats.add(m.title);
+            toVisit.push({ title: m.title, depth: depth + 1 });
+          }
+        } else {
+          // unique pages by pageid
+          if (!pages.has(m.pageid)) pages.set(m.pageid, { title: m.title, pageid: m.pageid });
+        }
+      }
+
+      cmcontinue = data.continue?.cmcontinue || null;
+      if (typeof onProgress === 'function') onProgress(pages.size, seenCats.size);
+    } while (cmcontinue);
+  }
+
+  return Array.from(pages.values()).sort((a, b) => a.title.localeCompare(b.title));
+}
+
+// ------------- Category load (tree-aware + cached) -------------
 async function loadCategory(categoryValue) {
   console.log('➡️ loadCategory()', categoryValue);
   resetSearchUI();
@@ -190,9 +245,9 @@ async function loadCategory(categoryValue) {
   if (currentAbort) currentAbort.abort();
   currentAbort = new AbortController();
 
-  // Try cache first
+  // Try cache first (v2)
   const cached = loadCache(categoryValue);
-  if (cached) {
+  if (cached && Array.isArray(cached) && cached.length) {
     currentItems = cached;
     enableSearchAndLoad();
     setStatus(`Loaded ${cached.length} items (cached)`);
@@ -201,50 +256,23 @@ async function loadCategory(categoryValue) {
     return;
   }
 
-  // Fresh incremental load
+  // Fresh tree fetch
   enableSearchFieldOnly();
   currentItems = [];
   setStatus('Loading…');
-  console.log('🛰️ fetching category from API');
 
   try {
-    let cmcontinue = null;
-    let loadedCount = 0;
-    let firstBatchShown = false;
-
-    do {
-      const url = new URL('https://awakening.wiki/api.php');
-      url.searchParams.set('action', 'query');
-      url.searchParams.set('list', 'categorymembers');
-      url.searchParams.set('cmtitle', `Category:${categoryValue}`);
-      url.searchParams.set('cmlimit', '100');
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('origin', '*');
-      url.searchParams.set('cmtype', 'page'); // only pages (no Category:/File:)
-      if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
-
-      const res = await fetch(url, { signal: currentAbort.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      const batch = data.query.categorymembers.map(({ title, pageid }) => ({ title, pageid }));
-      currentItems = currentItems.concat(batch);
-      loadedCount += batch.length;
-      setStatus(`Loading… ${loadedCount} items`);
-      console.log('📦 batch', batch.length, 'total', loadedCount);
-
-      if (!firstBatchShown && currentItems.length >= 100) {
-        enableSearchAndLoad();
-        firstBatchShown = true;
-      }
-
-      cmcontinue = data.continue?.cmcontinue;
-    } while (cmcontinue);
-
-    if (!firstBatchShown) enableSearchAndLoad();
+    const items = await fetchCategoryTree(
+      categoryValue,
+      currentAbort.signal,
+      (count, cats) => setStatus(`Loading… ${count} items (from ${cats} categories)`),
+      4 // depth
+    );
+    currentItems = items;
+    enableSearchAndLoad();
     saveCache(categoryValue, currentItems);
     setStatus(`Loaded ${currentItems.length} items`);
-    console.log('✅ category load complete:', currentItems.length);
+    console.log('✅ category tree load complete:', currentItems.length);
   } catch (e) {
     if (e.name === 'AbortError') {
       console.log('🛑 category load aborted (switched categories)');
@@ -258,36 +286,16 @@ async function loadCategory(categoryValue) {
   }
 }
 
-// Background refresh to warm cache without touching UI mid-typing
+// Background refresh (tree-aware)
 async function refreshCategoryInBackground(categoryValue, signal) {
   try {
-    let items = [];
-    let cmcontinue = null;
-    do {
-      const url = new URL('https://awakening.wiki/api.php');
-      url.searchParams.set('action', 'query');
-      url.searchParams.set('list', 'categorymembers');
-      url.searchParams.set('cmtitle', `Category:${categoryValue}`);
-      url.searchParams.set('cmlimit', '100');
-      url.searchParams.set('format', 'json');
-      url.searchParams.set('origin', '*');
-      url.searchParams.set('cmtype', 'page');
-      if (cmcontinue) url.searchParams.set('cmcontinue', cmcontinue);
-
-      const res = await fetch(url, { signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      items = items.concat(data.query.categorymembers.map(({ title, pageid }) => ({ title, pageid })));
-      cmcontinue = data.continue?.cmcontinue;
-    } while (cmcontinue);
-
+    const items = await fetchCategoryTree(categoryValue, signal, null, 4);
     saveCache(categoryValue, items);
     if (categorySelect.value === categoryValue) {
       currentItems = items;
       setStatus(`Loaded ${currentItems.length} items (refreshed)`);
       enableSearchAndLoad();
-      console.log('♻️ refreshed cache & state for', categoryValue);
+      console.log('♻️ refreshed (tree) cache for', categoryValue);
     }
   } catch (e) {
     if (e.name !== 'AbortError') console.warn('bg refresh failed:', e);
@@ -420,7 +428,7 @@ async function resJSON(res) {
   try { return JSON.parse(t); } catch { throw new Error('Invalid JSON'); }
 }
 
-// --- NEW: make relative wiki links/images absolute so they work in our app
+// make relative wiki links/images absolute so they work in our app
 function absolutizeUrls(root, base = 'https://awakening.wiki') {
   const fix = (url) => {
     if (!url) return url;
@@ -463,7 +471,7 @@ function makePanel(title, contentNode) {
   return wrap;
 }
 
-// --- DROP-IN REPLACEMENT: full infobox clone with URL fixups ---
+// full infobox clone with URL fixups + duplicate title cleanup
 function extractInfobox(doc, pageTitle) {
   // Try common infobox containers used by the site
   const found = doc.querySelector('.infobox, .portable-infobox, .infobox-wrapper, aside.infobox');
@@ -476,30 +484,20 @@ function extractInfobox(doc, pageTitle) {
   box.appendChild(title);
 
   if (found) {
-    // Clone the ENTIRE infobox so we keep rich content (bars, nested tables, etc.)
     const cloned = found.cloneNode(true);
-// Remove redundant titles inside the infobox (we already show a page header)
-const titleLikeSelectors = [
-  '.pi-title',           // PortableInfobox title
-  '.infobox-title',      // some themes
-  '.infobox-header',     // common header class
-  'h1', 'h2', 'h3',      // plain headings sometimes used
-  '.mw-headline'         // generic MediaWiki headline node
-];
 
-// remove by selector
-cloned.querySelectorAll(titleLikeSelectors.join(',')).forEach(node => {
-  const text = (node.textContent || '').trim().toLowerCase();
-  const want = (pageTitle || '').trim().toLowerCase();
-  if (!text || text === want) node.remove();
-});
-
-// some pages wrap the title in a <caption> of a top table
-cloned.querySelectorAll('caption').forEach(node => {
-  const text = (node.textContent || '').trim().toLowerCase();
-  const want = (pageTitle || '').trim().toLowerCase();
-  if (text === want) node.remove();
-});
+    // Strip duplicate titles inside the infobox
+    const titleLikeSelectors = ['.pi-title', '.infobox-title', '.infobox-header', 'h1','h2','h3', '.mw-headline'];
+    cloned.querySelectorAll(titleLikeSelectors.join(',')).forEach(node => {
+      const text = (node.textContent || '').trim().toLowerCase();
+      const want = (pageTitle || '').trim().toLowerCase();
+      if (!text || text === want) node.remove();
+    });
+    cloned.querySelectorAll('caption').forEach(node => {
+      const text = (node.textContent || '').trim().toLowerCase();
+      const want = (pageTitle || '').trim().toLowerCase();
+      if (text === want) node.remove();
+    });
 
     // Remove edit chevrons/anchors if present
     cloned.querySelectorAll('.mw-editsection, .mw-editsection-visualeditor').forEach(n => n.remove());
@@ -507,12 +505,11 @@ cloned.querySelectorAll('caption').forEach(node => {
     // Ensure images/links work outside the wiki
     absolutizeUrls(cloned);
 
-    // Append as-is (keeps styles/markup)
     box.appendChild(cloned);
     return box;
   }
 
-  // Fallback: build a simple key/value table (older pages without a recognizable infobox)
+  // Fallback: simple table if no recognizable infobox
   const kvTable = doc.querySelector('#mw-content-text table');
   if (kvTable) {
     const simple = kvTable.cloneNode(true);
@@ -521,7 +518,7 @@ cloned.querySelectorAll('caption').forEach(node => {
     return box;
   }
 
-  // Final fallback: image (if any)
+  // Final fallback: any image
   const anyImg = doc.querySelector('#mw-content-text img');
   if (anyImg) {
     const im = document.createElement('img');
