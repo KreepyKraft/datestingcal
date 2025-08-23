@@ -1,4 +1,10 @@
-/* App shell (dark) */
+/* -----------------------------------------------------------
+   Dune Awakening Explorer — Dark UI + Boxed Layout (No h‑scroll)
+   ----------------------------------------------------------- */
+
+/* Optional: Ubuntu font (remove if you don’t want it) */
+@import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&display=swap');
+
 :root {
   --bg: #000;
   --panel: #111;
@@ -10,9 +16,10 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { height: 100%; max-width: 100%; overflow-x: hidden; }
+
 body {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Ubuntu', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   margin: 2rem;
   background: var(--bg);
   color: var(--text);
@@ -24,7 +31,8 @@ h1 {
   letter-spacing: .2px;
 }
 
-/* Controls row */
+/* -------------------- Controls / Search -------------------- */
+
 #controls {
   display: flex;
   gap: .75rem;
@@ -39,7 +47,6 @@ h1 {
   font-size: .95rem;
 }
 
-/* Combobox */
 .combo { position: relative; display: flex; align-items: stretch; gap: .5rem; }
 
 #item-search {
@@ -65,7 +72,7 @@ h1 {
 }
 #load-item-btn:disabled { opacity: .6; cursor: not-allowed; }
 
-/* Suggestions (overlay, does not push layout) */
+/* Suggestions dropdown (overlay) */
 .suggestions {
   position: absolute;
   top: calc(100% + 8px);
@@ -90,17 +97,22 @@ h1 {
 .suggestion:hover, .suggestion.active { background: #272727; }
 .suggestion .badge { margin-left: .5rem; color: var(--muted); font-size: .85rem; }
 
-/* Result layout */
+/* -------------------- Result Layout (boxed) -------------------- */
+
+/* Two-column grid: main + sidebar (infobox) */
 .item-layout {
   display: grid;
-  grid-template-columns: 1fr 360px;
+  /* Main content is allowed to shrink; sidebar stays between 280–360px */
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: 1rem;
+  align-items: start;
+  max-width: 100%;
+  overflow-x: hidden; /* stop page-level horizontal scroll */
 }
-@media (max-width: 980px) {
-  .item-layout { grid-template-columns: 1fr; }
-}
+/* Important: allow children to actually shrink instead of forcing overflow */
+.item-layout > * { min-width: 0; }
 
-/* Header panel */
+/* Header box */
 .item-header {
   grid-column: 1 / -1;
   padding: 1rem 1.1rem;
@@ -113,7 +125,7 @@ h1 {
 .muted { color: var(--muted); font-size: .95rem; }
 .item-header a { color: var(--link); }
 
-/* Sidebar / Infobox */
+/* Sidebar / Infobox box */
 .infobox {
   background: var(--panel);
   border: 1px solid #725f2a;
@@ -121,6 +133,8 @@ h1 {
   padding: .9rem;
   height: fit-content;
   color: var(--text);
+  max-width: 100%;
+  overflow-x: auto; /* if something inside is still too wide, scroll locally */
 }
 .infobox .infobox-title {
   font-weight: 800; text-align: center; margin-bottom: .5rem; color: var(--accent);
@@ -132,21 +146,73 @@ h1 {
   width: 100%;
   height: auto;
 }
-.infobox table { width: 100%; border-collapse: collapse; font-size: .97rem; }
-.infobox th, .infobox td { border-bottom: 1px solid var(--border); padding: .4rem .45rem; vertical-align: top; text-align: left; }
-.infobox th { width: 52%; color: var(--accent); font-weight: 700; }
+.infobox table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: .97rem;
+}
+.infobox th, .infobox td {
+  border-bottom: 1px solid var(--border);
+  padding: .4rem .45rem;
+  vertical-align: top;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
-/* Content panel */
+/* Content panels (Obtainment / Crafting / Item Data) */
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: .9rem 1.05rem;
   margin-bottom: .9rem;
+  max-width: 100%;
+  overflow-x: auto; /* local overflow only */
 }
 .panel h3 { margin: 0 0 .55rem; font-size: 1.2rem; font-weight: 800; color: var(--accent); }
 .panel p { margin: .35rem 0; line-height: 1.55; }
-.panel table { width: 100%; border-collapse: collapse; font-size: .97rem; margin: .35rem 0; }
-.panel th, .panel td { border: 1px solid var(--border); padding: .5rem .6rem; vertical-align: top; text-align: left; }
-.panel ul, .panel ol { margin: .35rem 0 .35rem 1.2rem; }
 .panel a { color: var(--link); }
+
+/* Tables inside panels: responsive & wrapped */
+#item-details table,
+.panel table {
+  width: 100%;
+  table-layout: fixed;   /* cells share width evenly */
+  border-collapse: collapse;
+  font-size: .97rem;
+  margin: .35rem 0;
+}
+#item-details th, #item-details td,
+.panel th, .panel td {
+  border: 1px solid var(--border);
+  padding: .5rem .6rem;
+  vertical-align: top;
+  text-align: left;
+  white-space: normal;     /* allow multi-line */
+  overflow-wrap: anywhere; /* break long URLs & tokens */
+}
+
+/* Images never exceed their container */
+#item-details img, .panel img, .infobox img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Slightly tighter spacing to “condense” the view */
+.panel       { padding: .7rem .85rem; }
+.infobox     { padding: .7rem; }
+.panel table,
+.infobox table { font-size: .93rem; }
+
+/* Keep the infobox visible as you scroll (large screens only) */
+@media (min-width: 1100px) {
+  .infobox { position: sticky; top: 1rem; }
+}
+
+/* One-column stack on smaller screens */
+@media (max-width: 980px) {
+  .item-layout { grid-template-columns: 1fr; }
+  .infobox { max-width: 100%; margin: 0; }
+}
