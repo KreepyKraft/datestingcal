@@ -256,3 +256,29 @@ h1 {
 .item-layout { overflow-x: hidden; }      /* keep overall layout tidy */
 .item-layout > * { min-width: 0; }        /* allow children to shrink */
 }
+/* --- Force single page-level scrollbar; no inner scroll on results --- */
+html, body {
+  overflow-y: auto;        /* page scroll only */
+}
+
+#item-details {
+  overflow: visible !important;   /* kill inner scrollbar */
+  max-height: none !important;
+}
+
+/* The layout wrapper should not create a scroll area either */
+.item-layout {
+  overflow-y: visible !important;
+}
+
+/* Only boxes can have local horizontal scroll if content is truly wide */
+.panel, .infobox {
+  overflow-y: visible !important;  /* no vertical scroll inside boxes */
+  overflow-x: auto;                /* allow sideways scroll only when needed */
+}
+
+/* Suggestions dropdown is allowed to scroll independently (that’s fine) */
+.suggestions {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+}
