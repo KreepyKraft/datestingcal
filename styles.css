@@ -242,3 +242,9 @@ html, body { overflow-y: auto; }               /* page scroll only */
 
 /* Kill stray inner scrollbars inherited from inline wiki styles */
 .infobox * { overflow-y: visible !important; max-height: none !important; }
+
+/* Hide stray empty captions in cloned infobox tables */
+.infobox caption:empty { display: none !important; }
+
+/* Collapse rows where both cells are empty after cleanup */
+.infobox tr:has(> th:empty):has(> td:empty) { display: none !important; }
