@@ -33,19 +33,10 @@ const statusEl       = document.getElementById('status');
 let currentItems = [];   // full local cache: [{title, pageid, cats:[...]}]
 let cacheReady   = false;
 let activeIndex  = -1;
-let currentAbort = null;
 let lastPrefixReq = 0;
 
 // ---------- Small UI helpers ----------
 function setStatus(t) { if (statusEl) statusEl.textContent = t || ''; }
-function resetSearchUI() {
-  itemSearch.value = '';
-  suggestionsBox.innerHTML = '';
-  suggestionsBox.classList.add('hidden');
-  itemSearch.setAttribute('aria-expanded', 'false');
-  activeIndex = -1;
-  setStatus('');
-}
 function enableSearch(yes) {
   itemSearch.disabled = !yes;
   loadItemBtn.disabled = !yes;
@@ -177,7 +168,6 @@ async function warmAllItems(signal) {
 
 // ---------- Prefix search (ultra-fast suggestions from server) ----------
 async function fetchPrefixSuggestions(q, limit = PREFIX_LIMIT) {
-  // debounce protection: ensure only latest response is used
   const token = ++lastPrefixReq;
 
   const url = new URL('https://awakening.wiki/api.php');
@@ -196,8 +186,8 @@ async function fetchPrefixSuggestions(q, limit = PREFIX_LIMIT) {
 
   const arr = (data.query?.prefixsearch || []).map(ps => ({
     title: ps.title,
-    pageid: ps.pageid || ps.pageid || ps.pspageid || ps.pageid, // some MW variants
-    cats: [] // unknown from prefixsearch; will fill after open if needed
+    pageid: ps.pageid || ps.pspageid || ps.pageid,
+    cats: [] // unknown from prefixsearch
   }));
   return arr;
 }
@@ -212,7 +202,6 @@ function getLocalMatches(query) {
     .sort(itCmp)
     .slice(0, LOCAL_LIMIT);
 }
-
 function deDupeById(list) {
   const seen = new Set();
   const out = [];
@@ -222,18 +211,14 @@ function deDupeById(list) {
   }
   return out;
 }
-
 async function getMixedSuggestions(query) {
   const q = query.trim();
   if (!q) return cacheReady ? currentItems.slice(0, 1000) : [];
-
   const wantsRemote = q.length >= PREFIX_MIN;
   const [remote, local] = await Promise.all([
     wantsRemote ? fetchPrefixSuggestions(q) : Promise.resolve([]),
     Promise.resolve(getLocalMatches(q))
   ]);
-
-  // Prefer remote first, then fill with local; remove duplicates by pageid
   return deDupeById([...remote, ...local]).slice(0, 1000);
 }
 
@@ -274,7 +259,6 @@ function findExactByTitle(t){ const q=t.trim().toLowerCase(); return currentItem
 
 // ---------- Events ----------
 const debounce = (fn, ms) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
-
 const onSearchInput = debounce(async () => {
   const q = itemSearch.value;
   try {
@@ -295,9 +279,7 @@ itemSearch.addEventListener('keydown',(e)=>{
   else if (e.key==='Enter'){
     if (!suggestionsBox.classList.contains('hidden') && activeIndex>=0){
       e.preventDefault();
-      const el = kids[activeIndex];
-      // use stored array instead of textContent to find record; simpler: click it
-      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+      kids[activeIndex].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
     } else {
       const found=findExactByTitle(itemSearch.value);
       if(found) chooseSuggestion(found);
@@ -317,7 +299,7 @@ async function loadItemByIdOrTitle(rec) {
     let pageId = rec.pageid;
     let pageTitle = rec.title;
 
-    // If we only have a title (from prefixsearch), resolve pageid + fullurl
+    // Resolve by title if needed
     if (!pageId) {
       const metaByTitle = new URL('https://awakening.wiki/api.php');
       metaByTitle.searchParams.set('action','query');
@@ -367,10 +349,10 @@ async function loadItemByIdOrTitle(rec) {
     const itemData   = extractSection(doc,'Item Data');
 
     [['Obtainment', obtainment], ['Crafting', crafting], ['Item Data', itemData]]
-  .forEach(([title, node]) => {
-    const p = makePanel(title, node);
-    if (p) main.appendChild(p);
-  });
+      .forEach(([t, node]) => {
+        const p = makePanel(t, node);
+        if (p) main.appendChild(p);
+      });
 
     if (!main.childNodes.length) {
       const generic = doc.querySelector('#mw-content-text')?.cloneNode(true);
@@ -411,37 +393,108 @@ function absolutizeUrls(root, base='https://awakening.wiki') {
   root.querySelectorAll('img[src]').forEach(img=>img.src = fix(img.getAttribute('src')));
   root.querySelectorAll('a[href]').forEach(a=>a.href = fix(a.getAttribute('href')));
 }
+
+/* === NEW: robust infobox clone (no duplicate titles, no inner scrollbars) === */
 function extractInfobox(doc, pageTitle) {
-  const found = doc.querySelector('.infobox, .portable-infobox, .infobox-wrapper, aside.infobox');
-  const box = document.createElement('aside'); box.className='infobox';
-  const title = document.createElement('div'); title.className='infobox-title'; title.textContent=pageTitle; box.appendChild(title);
+  const found = doc.querySelector(
+    '.infobox, .portable-infobox, .infobox-wrapper, aside.infobox, .pi-box, table.infobox'
+  );
+
+  const box = document.createElement('aside');
+  box.className = 'infobox';
+
+  const norm = (s) =>
+    (s || '').replace(/\s+/g, ' ').replace(/[’'"]/g, "'").trim().toLowerCase();
+  const pageNorm = norm(pageTitle);
+  const pageNoSlash = norm(pageTitle.replace(/\/.*$/, ''));
+
   if (found) {
     const cloned = found.cloneNode(true);
-    const titleSel = ['.pi-title','.infobox-title','.infobox-header','h1','h2','h3','.mw-headline'];
-    cloned.querySelectorAll(titleSel.join(',')).forEach(n=>{
-      const t=(n.textContent||'').trim().toLowerCase(), w=(pageTitle||'').trim().toLowerCase(); if(!t||t===w) n.remove();
+
+    // Remove gadgets/editors
+    cloned.querySelectorAll(
+      '.mw-editsection, .mw-editsection-visualeditor, .pi-edit-link, .mw-collapsible-toggle'
+    ).forEach(n => n.remove());
+
+    // Remove duplicate title elements
+    const titleCandidates = cloned.querySelectorAll(
+      ['.pi-title','.infobox-title','.infobox-header','caption','.mw-headline','h1','h2','h3','thead tr th'].join(',')
+    );
+    titleCandidates.forEach(el => {
+      const t = norm(el.textContent);
+      if (t === pageNorm || t === pageNoSlash) el.remove();
     });
-    cloned.querySelectorAll('caption').forEach(n=>{
-      const t=(n.textContent||'').trim().toLowerCase(), w=(pageTitle||'').trim().toLowerCase(); if(t===w) n.remove();
+
+    // Remove header rows that repeat the title
+    cloned.querySelectorAll('tr').forEach(tr => {
+      const first = tr.querySelector('th, td');
+      if (!first) return;
+      const t = norm(first.textContent);
+      if (t === pageNorm || t === pageNoSlash) tr.remove();
     });
-    cloned.querySelectorAll('.mw-editsection, .mw-editsection-visualeditor').forEach(n=>n.remove());
+
+    // Kill any inline overflow/max-height that would create inner scrollbars
+    cloned.style.overflow = 'visible';
+    cloned.querySelectorAll('[style]').forEach(el => {
+      const s = el.getAttribute('style') || '';
+      if (/overflow|max-height/i.test(s)) {
+        el.style.overflow = 'visible';
+        el.style.maxHeight = 'none';
+      }
+    });
+
     absolutizeUrls(cloned);
+
+    // Add our infobox title only if none remains after cleanup
+    const stillHasTitle = cloned.querySelector(
+      '.pi-title, .infobox-title, .infobox-header, caption, .mw-headline, h1, h2, h3'
+    );
+    if (!stillHasTitle) {
+      const t = document.createElement('div');
+      t.className = 'infobox-title';
+      t.textContent = pageTitle;
+      box.appendChild(t);
+    }
+
     box.appendChild(cloned);
     return box;
   }
-  const kv = doc.querySelector('#mw-content-text table');
-  if (kv) { const simple = kv.cloneNode(true); absolutizeUrls(simple); box.appendChild(simple); return box; }
+
+  // Fallbacks
+  const kvTable = doc.querySelector('#mw-content-text table');
+  if (kvTable) {
+    const simple = kvTable.cloneNode(true);
+    absolutizeUrls(simple);
+    const t = document.createElement('div');
+    t.className = 'infobox-title';
+    t.textContent = pageTitle;
+    box.appendChild(t);
+    box.appendChild(simple);
+    return box;
+  }
+
   const anyImg = doc.querySelector('#mw-content-text img');
-  if (anyImg){ const im=document.createElement('img'); im.className='infobox-img'; im.src=anyImg.src; im.alt=pageTitle; box.appendChild(im); }
+  if (anyImg) {
+    const t = document.createElement('div');
+    t.className = 'infobox-title';
+    t.textContent = pageTitle;
+    box.appendChild(t);
+
+    const im = document.createElement('img');
+    im.className = 'infobox-img';
+    im.src = anyImg.src;
+    im.alt = pageTitle;
+    box.appendChild(im);
+  }
   return box;
 }
 
 // --- INIT ---
 (async function init(){
   try {
-    enableSearch(true);          // search is usable immediately (prefixsearch)
+    enableSearch(true);          // search usable immediately (prefixsearch)
     setStatus('Loading…');
-    await warmAllItems(new AbortController().signal); // background full list
+    await warmAllItems(new AbortController().signal); // background warmup
   } catch (e) {
     console.error('❌ init failed:', e);
     setStatus('Init failed');
