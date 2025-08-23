@@ -2,11 +2,11 @@
    Dune Awakening Explorer — Dark UI + Boxed Layout (No h‑scroll)
    ----------------------------------------------------------- */
 
-/* Optional: Ubuntu font (remove if you don’t want it) */
+/* Optional: Ubuntu font */
 @import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&display=swap');
 
 :root {
-  --bg: #000;
+  --bg: #0b0b0b;
   --panel: #111;
   --border: #333;
   --text: #e0e0e0;
@@ -39,6 +39,10 @@ h1 {
   align-items: center;
   flex-wrap: nowrap;
   margin-bottom: 1rem;
+
+  /* ensure dropdown isn’t clipped and row can grow */
+  width: 100%;
+  overflow: visible;
 }
 
 #status {
@@ -47,10 +51,20 @@ h1 {
   font-size: .95rem;
 }
 
-.combo { position: relative; display: flex; align-items: stretch; gap: .5rem; }
+.combo {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: .5rem;
+
+  /* make the search row fill the line properly */
+  flex: 1 1 820px;
+  min-width: 320px;
+  max-width: 100%;
+}
 
 #item-search {
-  width: min(100%, 820px);
+  width: 100%;
   padding: .6rem .8rem;
   font-size: 1rem;
   background: var(--panel);
@@ -77,9 +91,11 @@ h1 {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  width: min(100%, 820px);
-  max-height: 420px;
-  overflow: auto;
+  width: 100%;                  /* match the input width */
+  max-width: 100%;
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  overflow-x: hidden;
   background: #1a1a1a;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -102,14 +118,13 @@ h1 {
 /* Two-column grid: main + sidebar (infobox) */
 .item-layout {
   display: grid;
-  /* Main content is allowed to shrink; sidebar stays between 280–360px */
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); /* main can shrink; sidebar bounded */
   gap: 1rem;
   align-items: start;
   max-width: 100%;
   overflow-x: hidden; /* stop page-level horizontal scroll */
 }
-/* Important: allow children to actually shrink instead of forcing overflow */
+/* Allow children to actually shrink instead of forcing overflow */
 .item-layout > * { min-width: 0; }
 
 /* Header box */
@@ -134,7 +149,8 @@ h1 {
   height: fit-content;
   color: var(--text);
   max-width: 100%;
-  overflow-x: auto; /* if something inside is still too wide, scroll locally */
+  overflow-x: auto; /* only sideways if needed */
+  overflow-y: visible; /* never its own vertical scroll */
 }
 .infobox .infobox-title {
   font-weight: 800; text-align: center; margin-bottom: .5rem; color: var(--accent);
@@ -169,7 +185,8 @@ h1 {
   padding: .9rem 1.05rem;
   margin-bottom: .9rem;
   max-width: 100%;
-  overflow-x: auto; /* local overflow only */
+  overflow-x: auto;   /* local horizontal only */
+  overflow-y: visible;
 }
 .panel h3 { margin: 0 0 .55rem; font-size: 1.2rem; font-weight: 800; color: var(--accent); }
 .panel p { margin: .35rem 0; line-height: 1.55; }
@@ -216,69 +233,12 @@ h1 {
   .item-layout { grid-template-columns: 1fr; }
   .infobox { max-width: 100%; margin: 0; }
 }
-/* === Fix search box clipping & width === */
-#controls {
-  width: 100%;
-  overflow: visible;     /* ensure dropdown isn’t clipped */
-}
 
-.combo {
-  flex: 1 1 820px;       /* grow to fill the row */
-  min-width: 320px;
-  max-width: 100%;
-}
+/* --- Force single page-level scrollbar; no inner vertical scroll areas --- */
+html, body { overflow-y: auto; }               /* page scroll only */
+#item-details { overflow: visible !important; max-height: none !important; }
+.item-layout  { overflow-y: visible !important; }
+.panel, .infobox { overflow-y: visible !important; overflow-x: auto; }
 
-#item-search {
-  width: 100%;           /* take all available width in the combo */
-}
-
-/* Make the suggestions exactly match the input width and never overflow page */
-.suggestions {
-  width: 100%;                 /* match #item-search width */
-  max-width: 100%;
-  left: 0;
-  right: auto;
-  max-height: min(420px, 60vh); /* sensible height without page overflow */
-}
-
-/* === Remove inner-page scrollbar on results container === */
-/* We previously had:  #item-details, .panel, .infobox { overflow-x:auto; }  */
-/* Keep overflow only on boxes; not on the whole results area. */
-.panel, .infobox {
-  max-width: 100%;
-  overflow-x: auto;     /* local horizontal scroll if absolutely necessary */
-}
-#item-details {
-  overflow: visible;     /* inherit page’s scroll only */
-}
-
-/* === Defensive: prevent layout from forcing page-wide horizontal scroll === */
-.item-layout { overflow-x: hidden; }      /* keep overall layout tidy */
-.item-layout > * { min-width: 0; }        /* allow children to shrink */
-}
-/* --- Force single page-level scrollbar; no inner scroll on results --- */
-html, body {
-  overflow-y: auto;        /* page scroll only */
-}
-
-#item-details {
-  overflow: visible !important;   /* kill inner scrollbar */
-  max-height: none !important;
-}
-
-/* The layout wrapper should not create a scroll area either */
-.item-layout {
-  overflow-y: visible !important;
-}
-
-/* Only boxes can have local horizontal scroll if content is truly wide */
-.panel, .infobox {
-  overflow-y: visible !important;  /* no vertical scroll inside boxes */
-  overflow-x: auto;                /* allow sideways scroll only when needed */
-}
-
-/* Suggestions dropdown is allowed to scroll independently (that’s fine) */
-.suggestions {
-  max-height: min(420px, 60vh);
-  overflow-y: auto;
-}
+/* Kill stray inner scrollbars inherited from inline wiki styles */
+.infobox * { overflow-y: visible !important; max-height: none !important; }
