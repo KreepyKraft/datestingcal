@@ -1,6 +1,6 @@
 /***********************
  * Dune Awakening Explorer
- * app.js — ALL-IN-ONE SEARCH (dark UI, fixed layout, no category select)
+ * app.js — FAST SEARCH (prefixsearch) + background full cache
  ***********************/
 
 // --- SAFETY NET ---
@@ -16,8 +16,11 @@ const TOP_CATEGORIES = [
   "Items", "Ammo", "Consumables", "Contract Items",
   "Garments", "Resources", "Tools", "Vehicles", "Weapons"
 ];
-const CACHE_TTL_MS  = 24 * 60 * 60 * 1000;  // 24h
-const CACHE_VERSION = 'all-v2';              // bump to invalidate old caches
+const CACHE_TTL_MS  = 24 * 60 * 60 * 1000;   // 24h
+const CACHE_VERSION = 'all-fast-v1';         // bump to invalidate old caches
+const PREFIX_MIN    = 2;                     // start prefixsearch at 2 chars
+const PREFIX_LIMIT  = 30;                    // how many remote suggestions
+const LOCAL_LIMIT   = 1000;                  // how many local items to show
 
 // --------------- DOM refs ---------------
 const itemSearch     = document.getElementById('item-search');
@@ -27,9 +30,11 @@ const itemDetails    = document.getElementById('item-details');
 const statusEl       = document.getElementById('status');
 
 // --------------- State ------------------
-let currentItems = [];   // [{title, pageid, cats: ['Weapons', ...]}]
+let currentItems = [];   // full local cache: [{title, pageid, cats:[...]}]
+let cacheReady   = false;
 let activeIndex  = -1;
 let currentAbort = null;
+let lastPrefixReq = 0;
 
 // ---------- Small UI helpers ----------
 function setStatus(t) { if (statusEl) statusEl.textContent = t || ''; }
@@ -127,95 +132,112 @@ async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4
   })).sort((a,b)=>a.title.localeCompare(b.title));
 }
 
-// Load ALL top categories into one list (sequential; shows progress)
-async function loadAllItems() {
-  resetSearchUI();
-  enableSearch(false);
-  itemDetails.innerHTML = '';
-  setStatus('Loading all items…');
-
-  if (currentAbort) currentAbort.abort();
-  currentAbort = new AbortController();
-
-  // Try cache first
-  const cached = loadAllCache();
-  if (cached) {
-    currentItems = cached;
+// Load ALL top categories (parallel with limited concurrency) → background
+async function warmAllItems(signal) {
+  const inCache = loadAllCache();
+  if (inCache) {
+    currentItems = inCache;
+    cacheReady = true;
+    setStatus(`Loaded ${currentItems.length} items (cached)`);
     enableSearch(true);
-    setStatus(`Loaded ${cached.length} items (cached)`);
-    // refresh in background
-    refreshAllInBackground(currentAbort.signal).catch(()=>{});
-    return;
+  } else {
+    setStatus('Warming item list…');
   }
 
-  try {
-    let merged = new Map(); // pageid -> record
-    let total  = 0;
+  // limit concurrency to be nice to the wiki
+  const queue = [...TOP_CATEGORIES];
+  const workers = 3;
+  const merged = new Map(inCache ? inCache.map(r => [r.pageid, r]) : []);
 
-    for (const cat of TOP_CATEGORIES) {
-      setStatus(`Loading ${cat}… (${total} items so far)`);
-      const items = await fetchCategoryTree(cat.replace(/\s+/g,'_'), currentAbort.signal,
-        (count) => setStatus(`Loading ${cat}… (${total + count} items)`),
-        4
-      );
-      // merge
-      for (const it of items) {
-        if (!merged.has(it.pageid)) merged.set(it.pageid, { ...it });
-        else {
-          const rec = merged.get(it.pageid);
-          const newCats = new Set([...(rec.cats||[]), ...(it.cats||[])]);
-          rec.cats = Array.from(newCats).sort();
-        }
-      }
-      total = merged.size;
-      if (total && itemSearch.disabled) enableSearch(true); // progressive UX
-    }
-
-    currentItems = Array.from(merged.values()).sort((a,b)=>a.title.localeCompare(b.title));
-    saveAllCache(currentItems);
-    setStatus(`Loaded ${currentItems.length} items`);
-    enableSearch(true);
-  } catch (e) {
-    if (e.name === 'AbortError') { console.log('🛑 loadAllItems aborted'); return; }
-    console.error('❌ Error loading all items:', e);
-    setStatus('Load failed');
-  }
-}
-
-async function refreshAllInBackground(signal) {
-  try {
-    let merged = new Map();
-    for (const cat of TOP_CATEGORIES) {
+  async function worker() {
+    while (queue.length) {
+      const cat = queue.shift();
       const items = await fetchCategoryTree(cat.replace(/\s+/g,'_'), signal, null, 4);
       for (const it of items) {
         if (!merged.has(it.pageid)) merged.set(it.pageid, { ...it });
         else {
           const rec = merged.get(it.pageid);
-          const newCats = new Set([...(rec.cats||[]), ...(it.cats||[])]);
-          rec.cats = Array.from(newCats).sort();
+          const set = new Set([...(rec.cats||[]), ...(it.cats||[])]);
+          rec.cats = Array.from(set).sort();
         }
       }
+      setStatus(`Warming… ${merged.size} items`);
     }
-    const all = Array.from(merged.values()).sort((a,b)=>a.title.localeCompare(b.title));
-    saveAllCache(all);
-    currentItems = all;
-    setStatus(`Loaded ${currentItems.length} items (refreshed)`);
-  } catch (e) {
-    if (e.name !== 'AbortError') console.warn('bg refresh failed:', e);
   }
+
+  await Promise.all(Array.from({length: workers}, worker));
+
+  const all = Array.from(merged.values()).sort((a,b)=>a.title.localeCompare(b.title));
+  saveAllCache(all);
+  currentItems = all;
+  cacheReady = true;
+  enableSearch(true);
+  setStatus(`Loaded ${currentItems.length} items`);
 }
 
-// ---------- Suggestions ----------
-function getMatches(query) {
+// ---------- Prefix search (ultra-fast suggestions from server) ----------
+async function fetchPrefixSuggestions(q, limit = PREFIX_LIMIT) {
+  // debounce protection: ensure only latest response is used
+  const token = ++lastPrefixReq;
+
+  const url = new URL('https://awakening.wiki/api.php');
+  url.searchParams.set('action','query');
+  url.searchParams.set('list','prefixsearch');
+  url.searchParams.set('pssearch', q);
+  url.searchParams.set('pslimit', String(limit));
+  url.searchParams.set('psnamespace', '0'); // articles only
+  url.searchParams.set('format','json');
+  url.searchParams.set('origin','*');
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (token !== lastPrefixReq) return []; // newer request already in flight
+
+  const arr = (data.query?.prefixsearch || []).map(ps => ({
+    title: ps.title,
+    pageid: ps.pageid || ps.pageid || ps.pspageid || ps.pageid, // some MW variants
+    cats: [] // unknown from prefixsearch; will fill after open if needed
+  }));
+  return arr;
+}
+
+// ---------- Suggestions (union: remote prefix + local cache) ----------
+function getLocalMatches(query) {
   const q = query.trim().toLowerCase();
-  if (!q) return currentItems.slice(0, 1000);
+  if (!q || !cacheReady) return [];
   return currentItems
     .map(it => ({ ...it, _score: scoreMatch(q, it.title) }))
     .filter(it => it._score < 9999)
     .sort(itCmp)
-    .slice(0, 1000);
+    .slice(0, LOCAL_LIMIT);
 }
 
+function deDupeById(list) {
+  const seen = new Set();
+  const out = [];
+  for (const it of list) {
+    const id = it.pageid || it.title;
+    if (!seen.has(id)) { seen.add(id); out.push(it); }
+  }
+  return out;
+}
+
+async function getMixedSuggestions(query) {
+  const q = query.trim();
+  if (!q) return cacheReady ? currentItems.slice(0, 1000) : [];
+
+  const wantsRemote = q.length >= PREFIX_MIN;
+  const [remote, local] = await Promise.all([
+    wantsRemote ? fetchPrefixSuggestions(q) : Promise.resolve([]),
+    Promise.resolve(getLocalMatches(q))
+  ]);
+
+  // Prefer remote first, then fill with local; remove duplicates by pageid
+  return deDupeById([...remote, ...local]).slice(0, 1000);
+}
+
+// ---------- Render suggestions ----------
 function renderSuggestions(items) {
   suggestionsBox.innerHTML = '';
   if (!items.length) {
@@ -247,12 +269,24 @@ function highlight(index) {
     itemSearch.setAttribute('aria-activedescendant', kids[index].id);
   } else itemSearch.setAttribute('aria-activedescendant','');
 }
-function chooseSuggestion(item){ itemSearch.value=item.title; hideSuggestions(); loadItemByPageId(item.pageid); }
+function chooseSuggestion(item){ itemSearch.value=item.title; hideSuggestions(); loadItemByIdOrTitle(item); }
 function findExactByTitle(t){ const q=t.trim().toLowerCase(); return currentItems.find(i=>i.title.toLowerCase()===q)||null; }
 
 // ---------- Events ----------
-itemSearch.addEventListener('input',  () => renderSuggestions(getMatches(itemSearch.value)));
-itemSearch.addEventListener('focus',  () => renderSuggestions(getMatches(itemSearch.value)));
+const debounce = (fn, ms) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+
+const onSearchInput = debounce(async () => {
+  const q = itemSearch.value;
+  try {
+    const items = await getMixedSuggestions(q);
+    renderSuggestions(items);
+  } catch(e) {
+    console.warn('suggestions failed:', e);
+  }
+}, 150);
+
+itemSearch.addEventListener('input', onSearchInput);
+itemSearch.addEventListener('focus', onSearchInput);
 itemSearch.addEventListener('blur',   () => setTimeout(hideSuggestions,150));
 itemSearch.addEventListener('keydown',(e)=>{
   const kids=[...suggestionsBox.children];
@@ -260,39 +294,71 @@ itemSearch.addEventListener('keydown',(e)=>{
   else if (e.key==='ArrowUp'){ e.preventDefault(); if(!kids.length)return; activeIndex=(activeIndex-1+kids.length)%kids.length; highlight(activeIndex); }
   else if (e.key==='Enter'){
     if (!suggestionsBox.classList.contains('hidden') && activeIndex>=0){
-      e.preventDefault(); const title=kids[activeIndex].textContent; const found=findExactByTitle(title); if(found) chooseSuggestion(found);
-    } else { const found=findExactByTitle(itemSearch.value); if(found) chooseSuggestion(found); }
+      e.preventDefault();
+      const el = kids[activeIndex];
+      // use stored array instead of textContent to find record; simpler: click it
+      el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+    } else {
+      const found=findExactByTitle(itemSearch.value);
+      if(found) chooseSuggestion(found);
+    }
   } else if (e.key==='Escape'){ hideSuggestions(); }
 });
 loadItemBtn.addEventListener('click', ()=>{
   const found=findExactByTitle(itemSearch.value);
-  if(found) loadItemByPageId(found.pageid);
+  if(found) loadItemByIdOrTitle(found);
+  else if (itemSearch.value.trim()) loadItemByIdOrTitle({ title:itemSearch.value.trim() });
 });
 
-// ---------- Item page render ----------
-async function loadItemByPageId(pageId) {
+// ---------- Load + render item page ----------
+async function loadItemByIdOrTitle(rec) {
   itemDetails.innerHTML = '';
-
   try {
+    let pageId = rec.pageid;
+    let pageTitle = rec.title;
+
+    // If we only have a title (from prefixsearch), resolve pageid + fullurl
+    if (!pageId) {
+      const metaByTitle = new URL('https://awakening.wiki/api.php');
+      metaByTitle.searchParams.set('action','query');
+      metaByTitle.searchParams.set('prop','info');
+      metaByTitle.searchParams.set('inprop','url');
+      metaByTitle.searchParams.set('redirects','1');
+      metaByTitle.searchParams.set('titles', pageTitle);
+      metaByTitle.searchParams.set('format','json');
+      metaByTitle.searchParams.set('origin','*');
+      const res = await fetch(metaByTitle);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const page = Object.values(data.query.pages)[0];
+      pageId = page.pageid;
+      pageTitle = page.title;
+      rec.pageid = pageId;
+      rec.title  = pageTitle;
+    }
+
+    // Metadata (ensures fullurl for header)
     const metaRes = await fetch(`https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=info&inprop=url&format=json&origin=*`);
     if (!metaRes.ok) throw new Error(`HTTP ${metaRes.status}`);
     const meta = await (async r=>JSON.parse(await r.text()))(metaRes);
     const page = meta.query.pages[pageId];
-    const pageTitle = page.title;
-    const pageSlug  = pageTitle.replace(/ /g,'_');
+    const title = page.title;
+    const slug  = title.replace(/ /g,'_');
 
-    const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/${pageSlug}`);
+    // Page HTML (CORS proxy)
+    const htmlRes = await fetch(`https://corsproxy.io/?https://awakening.wiki/${slug}`);
     if (!htmlRes.ok) throw new Error(`HTTP ${htmlRes.status}`);
     const htmlText = await htmlRes.text();
     const doc = new DOMParser().parseFromString(htmlText,'text/html');
 
+    // Layout
     const layout = document.createElement('div'); layout.className='item-layout';
 
     const header = document.createElement('div'); header.className='item-header';
-    header.innerHTML = `<h2>${pageTitle}</h2><div class="muted">Source: <a href="${page.fullurl}" target="_blank" rel="noopener">View on Wiki ↗</a></div>`;
+    header.innerHTML = `<h2>${title}</h2><div class="muted">Source: <a href="${page.fullurl}" target="_blank" rel="noopener">View on Wiki ↗</a></div>`;
     layout.appendChild(header);
 
-    const sidebar = extractInfobox(doc, pageTitle);
+    const sidebar = extractInfobox(doc, title);
     layout.appendChild(sidebar);
 
     const main = document.createElement('div');
@@ -313,13 +379,14 @@ async function loadItemByPageId(pageId) {
     layout.insertBefore(main, sidebar);
     itemDetails.innerHTML = '';
     itemDetails.appendChild(layout);
+
   } catch (e) {
     console.error('❌ Error loading item:', e);
     itemDetails.textContent = 'Failed to load full details.';
   }
 }
 
-// ---------- DOM helpers for sections/infobox ----------
+// ---------- DOM helpers ----------
 function extractSection(doc, headingText) {
   const h2s = [...doc.querySelectorAll('#mw-content-text h2')];
   const h = h2s.find(n => n.textContent.trim().toLowerCase().startsWith(headingText.toLowerCase()));
@@ -371,7 +438,9 @@ function extractInfobox(doc, pageTitle) {
 // --- INIT ---
 (async function init(){
   try {
-    await loadAllItems(); // enableSearch() happens progressively
+    enableSearch(true);          // search is usable immediately (prefixsearch)
+    setStatus('Loading…');
+    await warmAllItems(new AbortController().signal); // background full list
   } catch (e) {
     console.error('❌ init failed:', e);
     setStatus('Init failed');
