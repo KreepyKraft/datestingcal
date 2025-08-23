@@ -363,13 +363,14 @@ async function loadItemByIdOrTitle(rec) {
 
     const main = document.createElement('div');
     const obtainment = extractSection(doc,'Obtainment');
-    const media      = extractSection(doc,'Media');
     const crafting   = extractSection(doc,'Crafting');
     const itemData   = extractSection(doc,'Item Data');
 
-    [['Obtainment',obtainment],['Media',media],['Crafting',crafting],['Item Data',itemData]].forEach(([t,n])=>{
-      const p = makePanel(t,n); if(p) main.appendChild(p);
-    });
+    [['Obtainment', obtainment], ['Crafting', crafting], ['Item Data', itemData]]
+  .forEach(([title, node]) => {
+    const p = makePanel(title, node);
+    if (p) main.appendChild(p);
+  });
 
     if (!main.childNodes.length) {
       const generic = doc.querySelector('#mw-content-text')?.cloneNode(true);
