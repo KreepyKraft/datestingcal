@@ -1,6 +1,6 @@
 /***********************
  * Dune Awakening Explorer
- * app.js — ALL-IN-ONE SEARCH (no category select)
+ * app.js — ALL-IN-ONE SEARCH (dark UI, fixed layout, no category select)
  ***********************/
 
 // --- SAFETY NET ---
@@ -17,7 +17,7 @@ const TOP_CATEGORIES = [
   "Garments", "Resources", "Tools", "Vehicles", "Weapons"
 ];
 const CACHE_TTL_MS  = 24 * 60 * 60 * 1000;  // 24h
-const CACHE_VERSION = 'all-v1';              // bump to invalidate old caches
+const CACHE_VERSION = 'all-v2';              // bump to invalidate old caches
 
 // --------------- DOM refs ---------------
 const itemSearch     = document.getElementById('item-search');
@@ -73,10 +73,9 @@ function loadAllCache() {
    ============================================================ */
 async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4) {
   const start = `Category:${categoryValue}`;
-
   const toVisit  = [{ title: start, depth: 0 }];
-  const seenCats = new Set([start]);       // category titles queued
-  const pages    = new Map();              // pageid -> {title, pageid, cats:Set}
+  const seenCats = new Set([start]);
+  const pages    = new Map(); // pageid -> {title, pageid, cats:Set}
 
   while (toVisit.length) {
     const { title, depth } = toVisit.shift();
@@ -87,7 +86,7 @@ async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4
       url.searchParams.set('action', 'query');
       url.searchParams.set('list', 'categorymembers');
       url.searchParams.set('cmtitle', title);
-      url.searchParams.set('cmlimit', '500');        // bigger batch
+      url.searchParams.set('cmlimit', '500');        // larger batch
       url.searchParams.set('cmtype', 'page|subcat'); // pages + subcats
       url.searchParams.set('format', 'json');
       url.searchParams.set('origin', '*');
@@ -121,7 +120,6 @@ async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4
     } while (cmcontinue);
   }
 
-  // normalize sets to arrays; sort by title
   return Array.from(pages.values()).map(p => ({
     title: p.title,
     pageid: p.pageid,
@@ -129,7 +127,7 @@ async function fetchCategoryTree(categoryValue, signal, onProgress, maxDepth = 4
   })).sort((a,b)=>a.title.localeCompare(b.title));
 }
 
-// Load ALL top categories into one list (sequential for clearer progress)
+// Load ALL top categories into one list (sequential; shows progress)
 async function loadAllItems() {
   resetSearchUI();
   enableSearch(false);
@@ -170,8 +168,7 @@ async function loadAllItems() {
         }
       }
       total = merged.size;
-      // progressively enable search after first category to improve UX
-      if (total && itemSearch.disabled) enableSearch(true);
+      if (total && itemSearch.disabled) enableSearch(true); // progressive UX
     }
 
     currentItems = Array.from(merged.values()).sort((a,b)=>a.title.localeCompare(b.title));
@@ -232,7 +229,8 @@ function renderSuggestions(items) {
     div.className = 'suggestion';
     div.id = `sg-${i}`;
     div.role = 'option';
-    div.innerHTML = `${it.title}${it.cats?.length ? ` <span class="badge">(${it.cats[0]})</span>` : ''}`;
+    const badge = it.cats?.length ? ` <span class="badge">(${it.cats[0]})</span>` : '';
+    div.innerHTML = `${it.title}${badge}`;
     div.addEventListener('mousedown', (e) => { e.preventDefault(); chooseSuggestion(it); });
     suggestionsBox.appendChild(div);
   }
@@ -274,6 +272,7 @@ loadItemBtn.addEventListener('click', ()=>{
 // ---------- Item page render ----------
 async function loadItemByPageId(pageId) {
   itemDetails.innerHTML = '';
+
   try {
     const metaRes = await fetch(`https://awakening.wiki/api.php?action=query&pageids=${pageId}&prop=info&inprop=url&format=json&origin=*`);
     if (!metaRes.ok) throw new Error(`HTTP ${metaRes.status}`);
