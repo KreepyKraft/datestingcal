@@ -411,77 +411,74 @@ function extractInfobox(doc, pageTitle) {
       .trim()
       .toLowerCase();
 
-  const clean = (s) =>
-    norm(s).replace(/[^a-z0-9]+/g, ' ').trim(); // strip punctuation/underscores/slashes
+  const clean = (s) => norm(s).replace(/[^a-z0-9]+/g, ' ').trim();
 
-  // Title variants to match against
-  const fullNorm    = clean(pageTitle);
-  const noSlashNorm = clean(pageTitle.replace(/\/.*$/, '')); // "Foo/Schematic" -> "Foo"
+  const baseTitle = pageTitle.replace(/\/.*$/, '');
+  const fullNorm = clean(pageTitle);
+  const baseNorm = clean(baseTitle);
 
   const titleVariants = new Set([
     fullNorm,
-    noSlashNorm,
-    `${noSlashNorm} schematic`,
-    `${noSlashNorm} learnable schematic`,
-    `${noSlashNorm} unique schematic`,
-    `${noSlashNorm} schematic unique`, // catch weird orderings
+    baseNorm,
+    `${baseNorm} schematic`,
+    `${baseNorm} learnable schematic`,
+    `${baseNorm} unique schematic`,
+    `${baseNorm} schematic unique`,
   ]);
 
   const looksLikeTitleVariant = (txt) => {
     const c = clean(txt);
     if (!c) return false;
     if (titleVariants.has(c)) return true;
-    // "Foo … Schematic" (extra words in between)
-    if (c.startsWith(noSlashNorm) && c.includes('schematic')) return true;
+    if (c.startsWith(baseNorm) && c.includes('schematic')) return true;
     return false;
   };
 
   if (found) {
     const cloned = found.cloneNode(true);
 
-    // Remove edit controls/collapsers
+    // Remove edit gadgets
     cloned
       .querySelectorAll(
         '.mw-editsection, .mw-editsection-visualeditor, .pi-edit-link, .mw-collapsible-toggle'
       )
       .forEach((n) => n.remove());
 
-    // Remove duplicate title elements/captions/headers
-    const titleSel = [
-      '.pi-title',
-      '.infobox-title',
-      '.infobox-header',
-      'caption',
-      '.mw-headline',
-      'h1',
-      'h2',
-      'h3',
-      'thead tr th',
-    ].join(',');
+    // Remove duplicate title/caption/header elements
+    cloned
+      .querySelectorAll(
+        [
+          '.pi-title',
+          '.infobox-title',
+          '.infobox-header',
+          'caption',
+          '.mw-headline',
+          'h1',
+          'h2',
+          'h3',
+          'thead tr th',
+        ].join(',')
+      )
+      .forEach((el) => {
+        if (looksLikeTitleVariant(el.textContent || '')) el.remove();
+      });
 
-    cloned.querySelectorAll(titleSel).forEach((el) => {
-      const t = el.textContent || '';
-      if (looksLikeTitleVariant(t)) el.remove();
-    });
-
-    // Remove header rows where the first cell repeats the title variant
+    // Remove header rows that repeat the title variant
     cloned.querySelectorAll('tr').forEach((tr) => {
       const first = tr.querySelector('th, td');
-      if (!first) return;
-      if (looksLikeTitleVariant(first.textContent || '')) tr.remove();
+      if (first && looksLikeTitleVariant(first.textContent || '')) tr.remove();
     });
 
     // Remove obvious placeholder rows like "[[File:]]"
     cloned.querySelectorAll('td, th').forEach((cell) => {
-      const txt = (cell.textContent || '').trim();
-      if (!txt) return;
-      if (txt === '[[File:]]' || txt === '[[File: ]]') {
+      const t = (cell.textContent || '').trim();
+      if (t === '[[File:]]' || t === '[[File: ]]') {
         const row = cell.closest('tr');
         if (row) row.remove();
       }
     });
 
-    // Some templates set inline overflow/max-height; kill inner vertical scrollbars
+    // Kill inline overflow/max-height to prevent inner vertical scrollbars
     cloned.style.overflow = 'visible';
     cloned.querySelectorAll('[style]').forEach((el) => {
       const s = el.getAttribute('style') || '';
@@ -491,62 +488,14 @@ function extractInfobox(doc, pageTitle) {
       }
     });
 
-    // Fix relative links/images to absolute
+    // Make links/images absolute
     absolutizeUrls(cloned);
 
-    // Add our title only if none remains
-    const stillHasTitle = cloned.querySelector(
+    // Add our own title only if none remains
+    const hasTitle = cloned.querySelector(
       '.pi-title, .infobox-title, .infobox-header, caption, .mw-headline, h1, h2, h3'
     );
-    if (!stillHasTitle) {
-      const t = document.createElement('div');
-      t.className = 'infobox-title';
-      t.textContent = pageTitle;
-      box.appendChild(t);
-    }
-
-    box.appendChild(cloned);
-    return box;
-  }
-
-  // Fallbacks when no recognizable infobox exists
-  const kvTable = doc.querySelector('#mw-content-text table');
-  if (kvTable) {
-    const simple = kvTable.cloneNode(true);
-    absolutizeUrls(simple);
-    const t = document.createElement('div');
-    t.className = 'infobox-title';
-    t.textContent = pageTitle;
-    box.appendChild(t);
-    box.appendChild(simple);
-    return box;
-  }
-
-  const anyImg = doc.querySelector('#mw-content-text img');
-  if (anyImg) {
-    const t = document.createElement('div');
-    t.className = 'infobox-title';
-    t.textContent = pageTitle;
-    box.appendChild(t);
-
-    const im = document.createElement('img');
-    im.className = 'infobox-img';
-    im.src = anyImg.src;
-    im.alt = pageTitle;
-    box.appendChild(im);
-  }
-
-  return box;
-}
-    });
-
-    absolutizeUrls(cloned);
-
-    // Add our infobox title only if none remains after cleanup
-    const stillHasTitle = cloned.querySelector(
-      '.pi-title, .infobox-title, .infobox-header, caption, .mw-headline, h1, h2, h3'
-    );
-    if (!stillHasTitle) {
+    if (!hasTitle) {
       const t = document.createElement('div');
       t.className = 'infobox-title';
       t.textContent = pageTitle;
@@ -558,9 +507,9 @@ function extractInfobox(doc, pageTitle) {
   }
 
   // Fallbacks
-  const kvTable = doc.querySelector('#mw-content-text table');
-  if (kvTable) {
-    const simple = kvTable.cloneNode(true);
+  const kv = doc.querySelector('#mw-content-text table');
+  if (kv) {
+    const simple = kv.cloneNode(true);
     absolutizeUrls(simple);
     const t = document.createElement('div');
     t.className = 'infobox-title';
@@ -570,8 +519,8 @@ function extractInfobox(doc, pageTitle) {
     return box;
   }
 
-  const anyImg = doc.querySelector('#mw-content-text img');
-  if (anyImg) {
+  const img = doc.querySelector('#mw-content-text img');
+  if (img) {
     const t = document.createElement('div');
     t.className = 'infobox-title';
     t.textContent = pageTitle;
@@ -579,10 +528,11 @@ function extractInfobox(doc, pageTitle) {
 
     const im = document.createElement('img');
     im.className = 'infobox-img';
-    im.src = anyImg.src;
+    im.src = img.src;
     im.alt = pageTitle;
     box.appendChild(im);
   }
+
   return box;
 }
 
