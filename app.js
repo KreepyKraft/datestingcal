@@ -414,8 +414,8 @@ function extractInfobox(doc, pageTitle) {
   const clean = (s) => norm(s).replace(/[^a-z0-9]+/g, ' ').trim();
 
   const baseTitle = pageTitle.replace(/\/.*$/, '');
-  const fullNorm = clean(pageTitle);
-  const baseNorm = clean(baseTitle);
+  const fullNorm  = clean(pageTitle);
+  const baseNorm  = clean(baseTitle);
 
   const titleVariants = new Set([
     fullNorm,
@@ -437,14 +437,14 @@ function extractInfobox(doc, pageTitle) {
   if (found) {
     const cloned = found.cloneNode(true);
 
-    // Remove edit gadgets
+    // Remove edit gadgets/collapsers
     cloned
       .querySelectorAll(
         '.mw-editsection, .mw-editsection-visualeditor, .pi-edit-link, .mw-collapsible-toggle'
       )
       .forEach((n) => n.remove());
 
-    // Remove duplicate title/caption/header elements
+    // Remove duplicate titles/captions/headers
     cloned
       .querySelectorAll(
         [
@@ -459,9 +459,7 @@ function extractInfobox(doc, pageTitle) {
           'thead tr th',
         ].join(',')
       )
-      .forEach((el) => {
-        if (looksLikeTitleVariant(el.textContent || '')) el.remove();
-      });
+      .forEach((el) => { if (looksLikeTitleVariant(el.textContent || '')) el.remove(); });
 
     // Remove header rows that repeat the title variant
     cloned.querySelectorAll('tr').forEach((tr) => {
@@ -469,26 +467,22 @@ function extractInfobox(doc, pageTitle) {
       if (first && looksLikeTitleVariant(first.textContent || '')) tr.remove();
     });
 
-    // Remove obvious placeholder rows like "[[File:]]"
+    // Remove placeholder rows like "[[File:]]"
     cloned.querySelectorAll('td, th').forEach((cell) => {
       const t = (cell.textContent || '').trim();
       if (t === '[[File:]]' || t === '[[File: ]]') {
-        const row = cell.closest('tr');
-        if (row) row.remove();
+        const row = cell.closest('tr'); if (row) row.remove();
       }
     });
 
-    // Kill inline overflow/max-height to prevent inner vertical scrollbars
+    // Kill inline max-height/overflow to prevent inner scrollbars
     cloned.style.overflow = 'visible';
     cloned.querySelectorAll('[style]').forEach((el) => {
       const s = el.getAttribute('style') || '';
-      if (/overflow|max-height/i.test(s)) {
-        el.style.overflow = 'visible';
-        el.style.maxHeight = 'none';
-      }
+      if (/overflow|max-height/i.test(s)) { el.style.overflow = 'visible'; el.style.maxHeight = 'none'; }
     });
 
-    // Make links/images absolute
+    // Fix relative links/images
     absolutizeUrls(cloned);
 
     // Add our own title only if none remains
