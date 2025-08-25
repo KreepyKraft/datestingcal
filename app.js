@@ -540,4 +540,12 @@ function extractInfobox(doc, pageTitle) {
     console.error('❌ init failed:', e);
     setStatus('Init failed');
   }
+  // Make sure only BODY scrolls (HTML hidden)
+document.documentElement.style.height = '100%';
+document.documentElement.style.overflow = 'hidden';
+
+document.body.style.height = '100%';
+document.body.style.overflowY = 'auto';
+document.body.style.overflowX = 'hidden';
+
 })();
