@@ -263,4 +263,25 @@ html, body {
   overflow: visible !important;
   max-height: none !important;
 }
+/* === Single page scrollbar (kills the white extra bar) === */
+html {
+  height: 100%;
+  overflow: hidden !important;      /* html never scrolls */
+}
+
+body {
+  height: 100%;
+  overflow-y: auto !important;      /* only body scrolls */
+  overflow-x: hidden !important;    /* no horizontal bar */
+}
+
+/* Ensure inner containers never spawn their own scrollbars */
+#item-details,
+.item-layout,
+.panel,
+.infobox,
+.mw-parser-output {
+  overflow: visible !important;
+  max-height: none !important;
+}
 
