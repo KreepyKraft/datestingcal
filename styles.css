@@ -248,3 +248,19 @@ html, body { overflow-y: auto; }               /* page scroll only */
 
 /* Collapse rows where both cells are empty after cleanup */
 .infobox tr:has(> th:empty):has(> td:empty) { display: none !important; }
+
+/* === Single scrollbar fix === */
+html, body {
+  overflow-x: hidden;   /* never side scroll */
+  overflow-y: auto;     /* only one vertical scroll bar on the page */
+}
+
+/* Kill vertical scrollbars inside result panels */
+#item-details,
+.item-layout,
+.panel,
+.infobox {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
