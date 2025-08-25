@@ -293,21 +293,21 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: #111;   /* black track */
+  background: #000;   /* black track */
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #333;  /* dark gray thumb */
+  background-color: #000;  /* dark gray thumb */
   border-radius: 6px;
-  border: 2px solid #111;  /* space around thumb */
+  border: 2px solid #000;  /* space around thumb */
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #555;  /* lighter on hover */
+  background-color: #000;  /* lighter on hover */
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #333 #111;
+  scrollbar-color: #000 #000;
 }
