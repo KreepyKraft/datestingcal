@@ -47,6 +47,14 @@ function scoreMatch(q, title) {
 }
 function itCmp(a, b){ return a._score - b._score || a.title.localeCompare(b.title); }
 
+// Clear search + close dropdown (called after any search)
+function clearSearchBar() {
+  itemSearch.value = '';
+  itemSearch.setAttribute('aria-expanded', 'false');
+  hideSuggestions();
+  // optional: itemSearch.blur();
+}
+
 // -------- localStorage cache helpers --------
 const ALL_CACHE_KEY = `awakening-category:${CACHE_VERSION}:ALL`;
 function saveAllCache(items) {
@@ -254,7 +262,13 @@ function highlight(index) {
     itemSearch.setAttribute('aria-activedescendant', kids[index].id);
   } else itemSearch.setAttribute('aria-activedescendant','');
 }
-function chooseSuggestion(item){ itemSearch.value=item.title; hideSuggestions(); loadItemByIdOrTitle(item); }
+
+// ✅ Clear first, then load (prevents the field from showing the chosen title)
+function chooseSuggestion(item){
+  clearSearchBar();                 // <— auto‑clear
+  loadItemByIdOrTitle(item);
+}
+
 function findExactByTitle(t){ const q=t.trim().toLowerCase(); return currentItems.find(i=>i.title.toLowerCase()===q)||null; }
 
 // ---------- Events ----------
@@ -280,16 +294,27 @@ itemSearch.addEventListener('keydown',(e)=>{
     if (!suggestionsBox.classList.contains('hidden') && activeIndex>=0){
       e.preventDefault();
       kids[activeIndex].dispatchEvent(new MouseEvent('mousedown', {bubbles:true}));
+      // chooseSuggestion() will clear
     } else {
-      const found=findExactByTitle(itemSearch.value);
-      if(found) chooseSuggestion(found);
+      const found = findExactByTitle(itemSearch.value);
+      if (found) {
+        chooseSuggestion(found);   // chooseSuggestion clears
+      } else if (itemSearch.value.trim()) {
+        loadItemByIdOrTitle({ title: itemSearch.value.trim() });
+        clearSearchBar();          // <— free‑text enter clears here
+      }
     }
   } else if (e.key==='Escape'){ hideSuggestions(); }
 });
+
 loadItemBtn.addEventListener('click', ()=>{
-  const found=findExactByTitle(itemSearch.value);
-  if(found) loadItemByIdOrTitle(found);
-  else if (itemSearch.value.trim()) loadItemByIdOrTitle({ title:itemSearch.value.trim() });
+  const found = findExactByTitle(itemSearch.value);
+  if (found) {
+    loadItemByIdOrTitle(found);
+  } else if (itemSearch.value.trim()) {
+    loadItemByIdOrTitle({ title:itemSearch.value.trim() });
+  }
+  clearSearchBar();                // <— always clear after clicking Load
 });
 
 // ---------- Load + render item page ----------
@@ -362,6 +387,9 @@ async function loadItemByIdOrTitle(rec) {
     layout.insertBefore(main, sidebar);
     itemDetails.innerHTML = '';
     itemDetails.appendChild(layout);
+
+    // optional belt-and-suspenders: ensure search is clear after render
+    // clearSearchBar();
 
   } catch (e) {
     console.error('❌ Error loading item:', e);
@@ -541,11 +569,9 @@ function extractInfobox(doc, pageTitle) {
     setStatus('Init failed');
   }
   // Make sure only BODY scrolls (HTML hidden)
-document.documentElement.style.height = '100%';
-document.documentElement.style.overflow = 'hidden';
-
-document.body.style.height = '100%';
-document.body.style.overflowY = 'auto';
-document.body.style.overflowX = 'hidden';
-
+  document.documentElement.style.height = '100%';
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.height = '100%';
+  document.body.style.overflowY = 'auto';
+  document.body.style.overflowX = 'hidden';
 })();
