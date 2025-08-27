@@ -1,36 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Dune Awakening Explorer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="UTF-8">
+  <title>Dune Calculator</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Dune Awakening Explorer</h1>
-
-  <div id="controls">
-    <!-- Single searchable combobox -->
-    <div class="combo" id="item-combo" aria-haspopup="listbox" aria-owns="item-suggestions">
-      <input
-        id="item-search"
-        type="text"
-        placeholder="Search or select an item…"
-        aria-autocomplete="list"
-        aria-expanded="false"
-        aria-controls="item-suggestions"
-        aria-activedescendant=""
-        disabled
-      />
-      <button id="load-item-btn" disabled>Load</button>
-
-      <div id="item-suggestions" class="suggestions hidden" role="listbox"></div>
-    </div>
-
-    <div id="status" aria-live="polite"></div>
+  <div class="controller">
+    <input type="text" id="item-search" placeholder="Search or select an item..." autocomplete="off">
+    <input type="number" id="item-qty" placeholder="QTY" min="1" value="1">
+    <button id="calculate-btn">Calculate</button>
+    <ul id="suggestions" class="dropdown"></ul>
   </div>
 
-  <div id="item-details"></div>
+  <div class="item-display">
+    <h2 id="item-name" class="hidden"></h2>
+    <img id="item-image" src="" alt="" class="hidden">
+    <div id="materials-list" class="hidden">
+      <h3>Materials</h3>
+      <ul></ul>
+    </div>
+  </div>
+
+  <div class="results hidden">
+    <p>Water: <span id="result-water">0</span> mL</p>
+    <p>Time: <span id="result-time">0h 0m 0s</span></p>
+  </div>
 
   <script src="app.js"></script>
 </body>
